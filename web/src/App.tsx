@@ -32,7 +32,7 @@ function SeloUsuario({ ativo }: { ativo: boolean }) {
       href={linkPara('perfil')}
       aria-current={ativo ? 'page' : undefined}
       aria-label={usuario ? `Perfil de ${usuario.nome}` : 'Entrar'}
-      className="flex min-h-11 max-w-40 items-center rounded-cordel border-2 border-borda bg-superficie px-3 font-bold text-tinta shadow-carimbo-pequeno aria-[current=page]:bg-tinta aria-[current=page]:text-fundo"
+      className="flex min-h-11 max-w-24 items-center sm:max-w-28 lg:max-w-40 rounded-cordel border-2 border-borda bg-superficie px-3 font-bold text-tinta shadow-carimbo-pequeno aria-[current=page]:bg-tinta aria-[current=page]:text-fundo"
     >
       <span className="truncate">{usuario ? usuario.nome : 'Entrar'}</span>
     </a>

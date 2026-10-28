@@ -31,8 +31,8 @@ export function Nivel() {
       className="flex min-h-11 items-center gap-2 rounded-cordel border-2 border-borda bg-superficie px-2.5 shadow-carimbo-pequeno"
     >
       <span className="font-display text-lg leading-none">Nv {p.nivel}</span>
-      <span className="hidden text-sm font-bold md:inline">{p.titulo}</span>
-      <BarraXp fracao={p.fracao} className="w-10 sm:w-16" />
+      <span className="hidden text-sm font-bold lg:inline">{p.titulo}</span>
+      <BarraXp fracao={p.fracao} className="w-6 lg:w-16" />
     </a>
   )
 }

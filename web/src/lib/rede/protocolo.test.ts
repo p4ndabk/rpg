@@ -1,7 +1,7 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools'
 import { describe, expect, it } from 'vitest'
 import { PEDIDO_PADRAO, noMomento, rolar } from '../dados'
-import { adicionarPeca, alternarOculta, criarSala, definirPvBase, editarFicha, iniciarCombate, type Sala } from '../sala'
+import { adicionarPeca, alternarOculta, criarSala, definirPvBase, disfarcarCenario, editarFicha, iniciarCombate, pintar, type Sala } from '../sala'
 import { aplicarAcao, lerAcao, lerConexao, lerConvite, lerEstado, lerFoto, lerMensagemCliente, textoDaAcao, visaoPublica, type Estado } from './protocolo'
 
 const chave = () => getPublicKey(generateSecretKey())
@@ -15,6 +15,47 @@ const base = (): Estado => {
   sala = adicionarPeca(sala, 'Orc', 'monstro', 'o')
   return { sala, log: [], jogadores: [] }
 }
+
+describe('foto pública: cenário escondido', () => {
+  it('não leva as casas de cenário escondidas, e leva as à vista', () => {
+    const estado = base()
+    estado.sala = pintar(pintar(estado.sala, [{ coluna: 5, linha: 5 }], 'armadilha', true), [{ coluna: 6, linha: 5 }], 'parede')
+    const foto = visaoPublica(estado)
+    expect(foto.sala.cenario).toEqual([{ coluna: 6, linha: 5, terreno: 'parede' }])
+    expect(JSON.stringify(foto)).not.toContain('armadilha')
+    // O mestre continua com tudo.
+    expect(estado.sala.cenario).toHaveLength(2)
+  })
+
+  it('tudo escondido: a foto fica sem cenário', () => {
+    const estado = base()
+    estado.sala = pintar(estado.sala, [{ coluna: 5, linha: 5 }], 'buraco', true)
+    expect(visaoPublica(estado).sala.cenario).toBeUndefined()
+  })
+
+  it('casa disfarçada vai na foto como o disfarce, sem revelar o terreno real', () => {
+    const estado = base()
+    estado.sala = disfarcarCenario(pintar(estado.sala, [{ coluna: 6, linha: 6 }], 'porta'), { coluna: 6, linha: 6 }, 'parede')
+    const foto = visaoPublica(estado).sala.cenario!.find((c) => c.coluna === 6 && c.linha === 6)
+    expect(foto).toEqual({ coluna: 6, linha: 6, terreno: 'parede' })
+    expect(JSON.stringify(visaoPublica(estado))).not.toContain('porta')
+  })
+})
+
+describe('classe na ficha', () => {
+  it('quem joga muda a classe do próprio personagem pela ação "ficha"', () => {
+    const dono = 'd'.repeat(64)
+    let estado = base()
+    estado.sala = adicionarPeca(estado.sala, 'Zé', 'personagem', 'z', undefined, undefined, dono)
+    const acao = lerAcao(JSON.stringify({ v: 1, tipo: 'ficha', peca: 'z', descricao: '', cd: null, bonusIniciativa: 0, classe: 'Clérigo' }))
+    expect(acao).toMatchObject({ tipo: 'ficha', classe: 'Clérigo' })
+    estado = aplicarAcao(estado, acao!, dono)!
+    expect(estado.sala.pecas.find((p) => p.id === 'z')?.classe).toBe('Clérigo')
+    expect(visaoPublica(estado).sala.pecas.find((p) => p.id === 'z')?.classe).toBe('Clérigo')
+    // Ação de antes, sem classe, continua valendo.
+    expect(lerAcao(JSON.stringify({ v: 1, tipo: 'ficha', peca: 'z', descricao: '', cd: null, bonusIniciativa: 0 }))).not.toBeNull()
+  })
+})
 
 describe('foto pública', () => {
   it('não leva peça escondida, vida de monstro, rolagem secreta nem notas', () => {

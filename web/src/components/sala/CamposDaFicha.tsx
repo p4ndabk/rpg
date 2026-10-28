@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { BONUS_INICIATIVA_MAX, BONUS_INICIATIVA_MIN, CD_FICHA_MAX, CD_FICHA_MIN, DESCRICAO_MAX, type CamposFicha, type Peca } from '../../lib/sala'
+import { BONUS_INICIATIVA_MAX, CLASSES, BONUS_INICIATIVA_MIN, CD_FICHA_MAX, CD_FICHA_MIN, DESCRICAO_MAX, type CamposFicha, type Peca } from '../../lib/sala'
 import { Botao } from '../ui/Botao'
 
 interface CamposDaFichaProps {
@@ -19,16 +19,17 @@ export function CamposDaFicha({ peca, aoSalvar, rotulo = 'Salvar ficha' }: Campo
   const [descricao, setDescricao] = useState(peca.descricao ?? '')
   const [cdTxt, setCdTxt] = useState(peca.cd !== undefined ? String(peca.cd) : '')
   const [bonusTxt, setBonusTxt] = useState(String(peca.bonusIniciativa ?? 0))
+  const [classe, setClasse] = useState(peca.classe ?? '')
 
   const cdDigitada = Number.parseInt(cdTxt, 10)
   const cd = Number.isInteger(cdDigitada) ? Math.min(CD_FICHA_MAX, Math.max(CD_FICHA_MIN, cdDigitada)) : null
   const bonusDigitado = Number.parseInt(bonusTxt, 10)
   const bonus = Math.min(BONUS_INICIATIVA_MAX, Math.max(BONUS_INICIATIVA_MIN, Number.isInteger(bonusDigitado) ? bonusDigitado : 0))
-  const mudou = descricao.trim() !== (peca.descricao ?? '') || cd !== (peca.cd ?? null) || bonus !== (peca.bonusIniciativa ?? 0)
+  const mudou = descricao.trim() !== (peca.descricao ?? '') || cd !== (peca.cd ?? null) || bonus !== (peca.bonusIniciativa ?? 0) || (peca.tipo === 'personagem' && classe !== (peca.classe ?? ''))
 
   function aoEnviar(e: FormEvent) {
     e.preventDefault()
-    aoSalvar({ descricao, cd, bonusIniciativa: bonus })
+    aoSalvar({ descricao, cd, bonusIniciativa: bonus, ...(peca.tipo === 'personagem' ? { classe } : {}) })
   }
 
   return (
@@ -50,6 +51,27 @@ export function CamposDaFicha({ peca, aoSalvar, rotulo = 'Salvar ficha' }: Campo
           {descricao.length}/{DESCRICAO_MAX}
         </p>
       </div>
+
+      {peca.tipo === 'personagem' && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="ficha-classe" className="font-bold">
+            Classe (o emblema na ficha)
+          </label>
+          <select
+            id="ficha-classe"
+            value={classe}
+            onChange={(e) => setClasse(e.target.value)}
+            className="min-h-11 w-full max-w-64 rounded-cordel border-2 border-borda bg-superficie px-3 text-tinta"
+          >
+            <option value="">Pelo nome do personagem</option>
+            {CLASSES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <div className="flex flex-col gap-1">

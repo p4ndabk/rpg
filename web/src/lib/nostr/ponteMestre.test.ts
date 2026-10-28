@@ -78,7 +78,7 @@ describe('PonteMestre', () => {
     pedir({ t: 'entrar', sala: SALA, pubkey: ANA, nome: 'Ana' })
     vi.advanceTimersByTime(300)
     expect(lerEventoFoto(fotos().at(-1)!)!.foto.jogadores.map((j) => j.nome)).toEqual(['Ana'])
-    expect(recebidas.at(-1)).toMatchObject({ t: 'estado' })
+    expect(recebidas.filter((m) => m.t === 'estado').at(-1)).toMatchObject({ t: 'estado' })
   })
 
   it('uma ação sem "entrar" antes também registra a pessoa e vale (mestre que recarregou)', () => {
@@ -90,14 +90,21 @@ describe('PonteMestre', () => {
     expect(foto.sala.pecas.find((p) => p.dono === ANA)?.nome).toBe('Ana')
   })
 
-  it('ação inválida (mover peça alheia) não muda nada', () => {
+  it('ação inválida (mover peça alheia) não muda a sala, mas a foto seguinte avisa a recusa', () => {
     const { pedir, fotos } = montar()
     pedir({ t: 'entrar', sala: SALA, pubkey: ANA, nome: 'Ana' })
     vi.advanceTimersByTime(300)
     const antes = fotos().length
+    const sala = lerEventoFoto(fotos().at(-1)!)!.foto.sala
     pedir({ t: 'acao', acao: { tipo: 'mover', peca: 'g', coluna: 3, linha: 3 } })
     vi.advanceTimersByTime(300)
-    expect(fotos()).toHaveLength(antes)
+    expect(fotos()).toHaveLength(antes + 1)
+    const ultima = fotos().at(-1)!
+    expect(ultima.tags).toContainEqual(['recusou', ANA, 'mover'])
+    expect(lerEventoFoto(ultima)!.foto.sala).toEqual(sala)
+    // A etiqueta vale uma vez só.
+    vi.advanceTimersByTime(60_000)
+    expect(fotos().at(-1)!.tags.some((t) => t[0] === 'recusou')).toBe(false)
   })
 
   it('pedido que finge ser o mestre é ignorado', () => {
@@ -123,6 +130,24 @@ describe('PonteMestre', () => {
     vi.advanceTimersByTime(300)
     expect(fotos()).toHaveLength(antes)
     ponte.fechar()
+  })
+
+  it('o pedido de presença marca a pessoa como vista na foto e avisa o mestre', () => {
+    const { pedir, fotos, recebidas } = montar()
+    pedir({ t: 'presenca' })
+    vi.advanceTimersByTime(300)
+    const foto = lerEventoFoto(fotos().at(-1)!)!.foto
+    expect(Object.keys(foto.vistos ?? {})).toEqual([ANA])
+    expect(foto.jogadores.map((j) => j.pubkey)).toEqual([ANA])
+    expect(recebidas.filter((m) => m.t === 'presenca').at(-1)).toMatchObject({ t: 'presenca', vistos: { [ANA]: expect.any(Number) } })
+  })
+
+  it('republica a foto a cada minuto, como sinal do mestre', () => {
+    const { fotos } = montar()
+    const antes = fotos().length
+    vi.advanceTimersByTime(60_000)
+    expect(fotos()).toHaveLength(antes + 1)
+    expect(fotos().at(-1)!.created_at).toBeGreaterThan(fotos()[antes - 1]!.created_at)
   })
 
   it('o mesmo evento repetido pelo relay só vale uma vez', () => {

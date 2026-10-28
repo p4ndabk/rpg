@@ -101,6 +101,9 @@ export class Servidor {
     const recusar = (motivo: Extract<MensagemServidor, { t: 'recusado' }>['motivo']): Saida[] => [{ para: id, msg: { t: 'recusado', motivo } }]
 
     switch (msg.t) {
+      case 'presenca':
+        return []
+
       case 'listar':
         return [{ para: id, msg: { t: 'salas', salas: this.listar(msg.pubkey) } }]
 

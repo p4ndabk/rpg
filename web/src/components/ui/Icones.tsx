@@ -78,3 +78,76 @@ export function IconeAmigos({ className = 'size-6' }: { className?: string }) {
     </svg>
   )
 }
+
+/** Olho riscado: o que está escondido de quem joga. */
+export function IconeEscondido({ className = 'size-4' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M2 12C4.5 7.5 8 5.5 12 5.5s7.5 2 10 6.5c-2.5 4.5-6 6.5-10 6.5S4.5 16.5 2 12Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M3 3l18 18" strokeWidth={2.6} />
+    </svg>
+  )
+}
+
+/** Mão aberta: mover peças e o mapa. */
+export function IconeMao({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M8 13V6a1.5 1.5 0 0 1 3 0v5M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6a1.5 1.5 0 0 1 3 0v8c0 4-2.5 6-6 6-2.5 0-4-1-5.5-3.5L3.5 13a1.5 1.5 0 0 1 2.5-1.5L8 14" />
+    </svg>
+  )
+}
+
+/** Pincel: pintar o cenário. */
+export function IconePincel({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M20 4 10 14" />
+      <path d="M10 14c-3 0-5 1.5-5 4.5 0 .8-.4 1.5-1.5 1.5 1 .8 2.3 1 3.5 1 3 0 5-2 5-5" />
+    </svg>
+  )
+}
+
+/** Alvo: destacar casas para a mesa toda. */
+export function IconeAlvo({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" />
+    </svg>
+  )
+}
+
+/** Seta que volta: desfazer. */
+export function IconeDesfazer({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M9 7 4 12l5 5" />
+      <path d="M4 12h10a6 6 0 0 1 0 12" transform="translate(0 -5)" />
+    </svg>
+  )
+}
+
+/** Seta que avança: refazer. */
+export function IconeRefazer({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <path d="m15 7 5 5-5 5" />
+      <path d="M20 12H10a6 6 0 0 0 0 12" transform="translate(0 -5)" />
+    </svg>
+  )
+}
+
+/** Três pontos ligados: compartilhar a sala. */
+export function IconeCompartilhar({ className = 'size-5' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="5.5" r="2.5" />
+      <circle cx="18" cy="18.5" r="2.5" />
+      <path d="m8.2 10.8 7.6-3.9M8.2 13.2l7.6 3.9" />
+    </svg>
+  )
+}

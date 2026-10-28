@@ -2,7 +2,7 @@ import { iniciais, type Peca } from '../../lib/sala'
 import { Emblema } from './Emblema'
 
 interface FichaProps {
-  peca: Pick<Peca, 'nome' | 'tipo'>
+  peca: Pick<Peca, 'nome' | 'tipo' | 'classe'>
   /** Peça selecionada: sobe e ganha a sombra carimbo, como se tivesse sido levantada do tabuleiro. */
   erguida?: boolean
   /** Peça da vez no combate: pulsa devagar para chamar o olho. */
@@ -38,7 +38,7 @@ export function Ficha({ peca, erguida = false, naVez = false, noTabuleiro = fals
       aria-hidden="true"
       className={`grid shrink-0 place-items-center overflow-hidden rounded-cordel border-2 border-borda bg-fundo ${tamanho} ${estado}`}
     >
-      <Emblema nome={peca.nome} className="size-full p-0.5" />
+      <Emblema nome={peca.classe ?? peca.nome} className="size-full p-0.5" />
     </span>
   )
 }

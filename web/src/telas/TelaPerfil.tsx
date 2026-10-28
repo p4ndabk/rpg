@@ -3,6 +3,10 @@ import { usarUsuario } from '../components/usuario/Usuario'
 import { BaixarCredencial, SubirCredencial } from '../components/usuario/Credencial'
 import { Botao } from '../components/ui/Botao'
 import { Opcao } from '../components/ui/Opcao'
+import { tocarAvisoDeVez } from '../components/sala/AvisoDaVez'
+import { gravar, ler, usarArmazenado } from '../lib/armazenamento'
+import { CHAVE_SOM, lerLigado } from '../lib/preferencias'
+import { CHAVE_CONVITE_PENDENTE } from '../lib/rede/chaves'
 import { gerarIdentidade, lerEntrada, npubDe, TAMANHO_MAXIMO_NOME } from '../lib/usuario'
 
 type Modo = 'criar' | 'colar' | 'arquivo'
@@ -31,8 +35,30 @@ export function TelaPerfil() {
       <h1 tabIndex={-1} className="font-display text-4xl">
         {usuario ? 'Seu perfil' : 'Quem vai jogar?'}
       </h1>
+      {usuario && <VoltarAoConvite />}
       {usuario ? <Perfil nome={usuario.nome} pubkey={usuario.pubkey} aoMudarNome={(nome) => entrar({ ...usuario, nome })} aoSair={sair} /> : <Entrada aoEntrar={entrar} />}
     </main>
+  )
+}
+
+/** Quem veio por um convite e precisou criar o perfil volta para ele com um toque. */
+function VoltarAoConvite() {
+  const [pendente] = useState(() => ler(CHAVE_CONVITE_PENDENTE, '', (v) => (typeof v === 'string' && v.startsWith('#/entrar/') ? v : null)))
+  if (!pendente) return null
+  return (
+    <section aria-labelledby="titulo-convite" className="mt-4 space-y-3 rounded-cordel border-2 border-borda bg-superficie p-4 shadow-carimbo">
+      <h2 id="titulo-convite" className="font-display text-2xl">
+        Seu convite está esperando
+      </h2>
+      <p>Pronto, você já tem perfil. Bora voltar para a sala?</p>
+      <a
+        href={pendente}
+        onClick={() => gravar(CHAVE_CONVITE_PENDENTE, '')}
+        className="inline-flex min-h-11 items-center justify-center rounded-cordel border-2 border-borda bg-vermelho px-5 py-2.5 font-bold text-sobre-vermelho shadow-carimbo"
+      >
+        Voltar ao convite
+      </a>
+    </section>
   )
 }
 
@@ -163,6 +189,7 @@ function Entrada({ aoEntrar }: { aoEntrar: (u: { pubkey: string; nome: string })
 function Perfil({ nome, pubkey, aoMudarNome, aoSair }: { nome: string; pubkey: string; aoMudarNome: (n: string) => void; aoSair: () => void }) {
   const [copiou, setCopiou] = useState(false)
   const npub = npubDe(pubkey)
+  const [som, setSom] = usarArmazenado<boolean>(CHAVE_SOM, true, lerLigado)
   return (
     <div className="mt-4 space-y-6">
       <div className="flex flex-col gap-1">
@@ -183,6 +210,20 @@ function Perfil({ nome, pubkey, aoMudarNome, aoSair }: { nome: string; pubkey: s
         <p className="text-sm text-tinta-suave">Quem conduz a sessão usa a npub para dar uma peça a você.</p>
       </section>
 
+
+      <section aria-labelledby="titulo-som" className="space-y-2">
+        <h2 id="titulo-som" className="font-bold">
+          Aviso da sua vez
+        </h2>
+        <label className="flex min-h-11 items-center gap-3 font-bold">
+          <input type="checkbox" checked={som} onChange={(e) => setSom(e.target.checked)} className="size-5 accent-vermelho" />
+          Tocar um som quando chegar a minha vez
+        </label>
+        <Botao tamanho="pequeno" onClick={tocarAvisoDeVez}>
+          Ouvir o som
+        </Botao>
+        <p className="text-sm text-tinta-suave">O cartão &quot;Sua vez!&quot; e o título da aba aparecem de qualquer jeito.</p>
+      </section>
 
       <section aria-labelledby="titulo-sair" className="border-t-2 border-dashed border-tinta-suave pt-6">
         <h2 id="titulo-sair" className="font-bold">

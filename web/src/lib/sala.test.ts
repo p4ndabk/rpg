@@ -27,8 +27,13 @@ import {
   iniciarCombate,
   lerSala,
   moverPeca,
+  motivoDoMovimento,
   nomeCasa,
   alternarDestaque,
+  alternarOcultoCenario,
+  cenarioVisivel,
+  disfarcarCenario,
+  ocultarCenario,
   destaqueEm,
   DESTAQUES_MAX,
   DESTAQUE_TEXTO_MAX,
@@ -105,6 +110,19 @@ describe('moverPeca', () => {
     expect(moverPeca(sala, goblin!.id, orc!.coluna, orc!.linha)).toBe(sala)
     expect(moverPeca(sala, goblin!.id, 4, 0)).toBe(sala)
     expect(moverPeca(sala, goblin!.id, -1, 0)).toBe(sala)
+  })
+
+  it('diz o motivo quando não pode mover', () => {
+    let sala = comPeca(salaVazia(), 'Goblin')
+    sala = comPeca(sala, 'Orc')
+    const [goblin, orc] = sala.pecas
+    sala = pintar(sala, [{ coluna: 3, linha: 3 }], 'parede')
+    expect(motivoDoMovimento(sala, goblin!.id, orc!.coluna, orc!.linha)).toBe('ocupada')
+    expect(motivoDoMovimento(sala, goblin!.id, 3, 3)).toBe('bloqueada')
+    expect(motivoDoMovimento(sala, goblin!.id, -1, 0)).toBe('fora')
+    expect(motivoDoMovimento(sala, goblin!.id, 2, 2)).toBeNull()
+    // A própria casa da peça não é "ocupada".
+    expect(motivoDoMovimento(sala, goblin!.id, goblin!.coluna, goblin!.linha)).toBeNull()
   })
 
   it('remove', () => {
@@ -346,6 +364,29 @@ describe('ficha do personagem', () => {
     expect(e.pecas[0]).toMatchObject({ descricao: 'Cicatriz no queixo e olhar cansado.', cd: 14, bonusIniciativa: 2 })
   })
 
+  it('a classe escolhida vale só se for conhecida, e vazia volta ao emblema pelo nome', () => {
+    const base = { descricao: '', cd: null, bonusIniciativa: 0 }
+    const mago = editarFicha(sala, 'g', { ...base, classe: 'Mago' })
+    expect(mago.pecas[0]?.classe).toBe('Mago')
+    expect(editarFicha(mago, 'g', { ...base, classe: 'Bardo' }).pecas[0]?.classe).toBeUndefined()
+    expect(editarFicha(mago, 'g', { ...base, classe: '' }).pecas[0]?.classe).toBeUndefined()
+    // Sem o campo (ficha de antes), a classe fica como está.
+    expect(editarFicha(mago, 'g', base).pecas[0]?.classe).toBe('Mago')
+  })
+
+  it('monstro não tem classe', () => {
+    const m = adicionarPeca(salaVazia(), 'Goblin', 'monstro', 'm')
+    expect(editarFicha(m, 'm', { descricao: '', cd: null, bonusIniciativa: 0, classe: 'Mago' }).pecas[0]?.classe).toBeUndefined()
+  })
+
+  it('a classe volta do armazenamento', () => {
+    const mago = editarFicha(sala, 'g', { descricao: '', cd: null, bonusIniciativa: 0, classe: 'Ladina' })
+    expect(lerSala(JSON.parse(JSON.stringify(mago)))?.pecas[0]?.classe).toBe('Ladina')
+    const lixo = JSON.parse(JSON.stringify(mago))
+    lixo.pecas[0].classe = 'Bardo'
+    expect(lerSala(lixo)?.pecas[0]?.classe).toBeUndefined()
+  })
+
   it('campo vazio, CD nula ou bônus zero somem da ficha', () => {
     const cheia = editarFicha(sala, 'g', { descricao: 'x', cd: 10, bonusIniciativa: 3 })
     const vazia = editarFicha(cheia, 'g', { descricao: '   ', cd: null, bonusIniciativa: 0 })
@@ -466,6 +507,83 @@ describe('definirPv', () => {
     expect(definirPv(sala, id, 10, -5).pecas[0]).toMatchObject({ pv: 0 })
     expect(definirPv(sala, id, 0).pecas[0]).toMatchObject({ pvMax: 1 })
     expect(definirPv(sala, id, 5000).pecas[0]).toMatchObject({ pvMax: 999 })
+  })
+})
+
+describe('cenário escondido', () => {
+  const base = () => pintar(pintar(salaVazia(8, 8), [{ coluna: 1, linha: 1 }, { coluna: 2, linha: 1 }], 'buraco'), [{ coluna: 3, linha: 3 }], 'parede')
+
+  it('pinta já escondido', () => {
+    const s = pintar(salaVazia(8, 8), [{ coluna: 0, linha: 0 }], 'armadilha', true)
+    expect(s.cenario).toEqual([{ coluna: 0, linha: 0, terreno: 'armadilha', oculta: true }])
+    expect(cenarioVisivel(s.cenario!)).toEqual([])
+  })
+
+  it('esconde e revela uma casa, sem mexer nas outras', () => {
+    const a = alternarOcultoCenario(base(), { coluna: 1, linha: 1 })
+    expect(a.cenario!.find((c) => c.coluna === 1 && c.linha === 1)?.oculta).toBe(true)
+    expect(a.cenario!.find((c) => c.coluna === 2 && c.linha === 1)?.oculta).toBeUndefined()
+    const b = alternarOcultoCenario(a, { coluna: 1, linha: 1 })
+    expect(b.cenario!.every((c) => !c.oculta)).toBe(true)
+    expect(alternarOcultoCenario(base(), { coluna: 7, linha: 7 })).toEqual(base())
+  })
+
+  it('esconde tudo, só um tipo, e revela tudo', () => {
+    const tudo = ocultarCenario(base(), true)
+    expect(tudo.cenario!.every((c) => c.oculta)).toBe(true)
+    const buracos = ocultarCenario(base(), true, (c) => c.terreno === 'buraco')
+    expect(buracos.cenario!.filter((c) => c.oculta).map((c) => c.terreno)).toEqual(['buraco', 'buraco'])
+    expect(ocultarCenario(tudo, false).cenario!.some((c) => c.oculta)).toBe(false)
+  })
+
+  it('sem mudança devolve a mesma sala', () => {
+    const s = base()
+    expect(ocultarCenario(s, false)).toBe(s)
+    expect(ocultarCenario(salaVazia(), true)).toEqual(salaVazia())
+  })
+
+  it('pintar por cima de uma casa escondida troca o terreno e mostra de novo', () => {
+    const s = pintar(alternarOcultoCenario(base(), { coluna: 1, linha: 1 }), [{ coluna: 1, linha: 1 }], 'agua')
+    expect(s.cenario!.find((c) => c.coluna === 1 && c.linha === 1)).toEqual({ coluna: 1, linha: 1, terreno: 'agua' })
+  })
+
+  it('disfarça: quem joga vê o disfarce, o mestre segue vendo o terreno real', () => {
+    const s = disfarcarCenario(pintar(salaVazia(8, 8), [{ coluna: 2, linha: 2 }], 'porta'), { coluna: 2, linha: 2 }, 'parede')
+    expect(s.cenario).toEqual([{ coluna: 2, linha: 2, terreno: 'porta', oculta: true, disfarce: 'parede' }])
+    expect(cenarioVisivel(s.cenario!)).toEqual([{ coluna: 2, linha: 2, terreno: 'parede' }])
+    // A porta de verdade não barra, mesmo parecendo parede.
+    expect(casaBloqueada(s, 2, 2)).toBe(false)
+  })
+
+  it('tirar o disfarce esconde de vez; revelar tira o disfarce', () => {
+    const d = disfarcarCenario(pintar(salaVazia(8, 8), [{ coluna: 2, linha: 2 }], 'porta'), { coluna: 2, linha: 2 }, 'parede')
+    const sem = disfarcarCenario(d, { coluna: 2, linha: 2 }, null)
+    expect(sem.cenario).toEqual([{ coluna: 2, linha: 2, terreno: 'porta', oculta: true }])
+    expect(cenarioVisivel(sem.cenario!)).toEqual([])
+    expect(ocultarCenario(d, false).cenario).toEqual([{ coluna: 2, linha: 2, terreno: 'porta' }])
+    // Esconder tudo de novo não perde o disfarce.
+    expect(ocultarCenario(d, true)).toBe(d)
+  })
+
+  it('disfarce em casa sem terreno, repetido ou sem efeito não muda nada', () => {
+    const s = pintar(salaVazia(8, 8), [{ coluna: 2, linha: 2 }], 'porta')
+    expect(disfarcarCenario(s, { coluna: 5, linha: 5 }, 'parede')).toBe(s)
+    expect(disfarcarCenario(s, { coluna: 2, linha: 2 }, null)).toBe(s)
+    const d = disfarcarCenario(s, { coluna: 2, linha: 2 }, 'parede')
+    expect(disfarcarCenario(d, { coluna: 2, linha: 2 }, 'parede')).toBe(d)
+  })
+
+  it('o disfarce volta do armazenamento, mas só em casa escondida', () => {
+    const d = disfarcarCenario(pintar(salaVazia(8, 8), [{ coluna: 2, linha: 2 }], 'porta'), { coluna: 2, linha: 2 }, 'parede')
+    expect(lerSala(JSON.parse(JSON.stringify(d)))?.cenario).toEqual(d.cenario)
+    const solto = JSON.parse(JSON.stringify(d))
+    delete solto.cenario[0].oculta
+    expect(lerSala(solto)?.cenario).toEqual([{ coluna: 2, linha: 2, terreno: 'porta' }])
+  })
+
+  it('volta do armazenamento com a marca', () => {
+    const s = ocultarCenario(base(), true, (c) => c.terreno === 'parede')
+    expect(lerSala(JSON.parse(JSON.stringify(s)))?.cenario?.filter((c) => c.oculta).map((c) => c.terreno)).toEqual(['parede'])
   })
 })
 

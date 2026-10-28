@@ -1,8 +1,9 @@
 import type { Event } from 'nostr-tools'
+import { SINAL_MS, ONLINE_S, type Vistos } from '../presenca'
 import { Servidor, type Mesas } from '../rede/mesas'
 import { visaoPublica, type MensagemCliente, type MensagemServidor } from '../rede/protocolo'
 import type { Barramento } from './barramento'
-import { KIND_PEDIDO, lerPedido, montarFoto, tagDaSala } from './eventos'
+import { KIND_PEDIDO, lerPedido, montarFoto, tagDaSala, type Recusa } from './eventos'
 
 // O "servidor" da sala nos relays roda DENTRO do navegador do mestre: é o mesmo `Servidor` do Node, em memória.
 // Quem joga manda pedidos (eventos efêmeros); a ponte os confere com as mesmas regras e publica a foto pública
@@ -10,8 +11,9 @@ import { KIND_PEDIDO, lerPedido, montarFoto, tagDaSala } from './eventos'
 
 const LOCAL = 'local'
 const ATRASO_FOTO_MS = 200
-// Os relays podem apagar a foto antiga; o mestre a publica de novo de tempos em tempos.
-const REPUBLICAR_MS = 4 * 60_000
+// A foto é republicada a cada minuto: serve de sinal do mestre ("estou aqui") para quem joga e leva a hora do último
+// sinal de cada pessoa. Os relays podem apagar a foto antiga, e assim ela também é renovada.
+const REPUBLICAR_MS = SINAL_MS
 const MAXIMO_VISTOS = 500
 
 export class PonteMestre {
@@ -21,9 +23,13 @@ export class PonteMestre {
   /** Quem (pubkey) cada chave de relay disse ser, para registrar uma vez só. */
   private readonly entrou = new Map<string, string>()
   private readonly vistos = new Set<string>()
+  /** Hora (segundos) do último pedido de cada pessoa, que vira a presença na Mesa. */
+  private readonly sinais = new Map<string, number>()
   private sala: string | null = null
   private pararPedidos: (() => void) | null = null
   private publicada = 0
+  /** A última jogada recusada desde a foto anterior: a próxima foto avisa quem jogou. */
+  private recusada: Recusa | null = null
   private ultimoCriado = 0
   private espera: ReturnType<typeof setTimeout> | undefined
   private readonly repeticao: ReturnType<typeof setInterval>
@@ -78,6 +84,12 @@ export class PonteMestre {
     if (quem.pubkey === mesa.mestre) return
     if (mensagem.t === 'entrar' && (mensagem.sala !== sala || mensagem.pubkey !== quem.pubkey)) return
 
+    // Qualquer pedido é sinal de vida. Quem estava sumido (ou é novo) faz a foto sair já, para a Mesa se atualizar.
+    const antes = this.sinais.get(quem.pubkey)
+    const agora = this.agora()
+    this.sinais.set(quem.pubkey, agora)
+    const voltou = antes === undefined || agora - antes > ONLINE_S
+
     const id = e.pubkey
     if (!this.conectados.has(id)) {
       this.conectados.add(id)
@@ -88,8 +100,15 @@ export class PonteMestre {
       this.entrou.set(id, quem.pubkey)
       this.despachar(this.servidor.tratar(id, { t: 'entrar', sala, pubkey: quem.pubkey, nome: quem.nome }))
     }
-    if (mensagem.t === 'acao') this.despachar(this.servidor.tratar(id, mensagem))
-    this.agendarFoto()
+    let recusou = false
+    if (mensagem.t === 'acao') {
+      const saidas = this.servidor.tratar(id, mensagem)
+      this.despachar(saidas)
+      // Ação que não vale faz o servidor devolver a foto real a quem jogou; aqui isso vira uma foto com a etiqueta de recusa.
+      recusou = saidas.some((s) => s.para === id && s.msg.t === 'foto')
+      if (recusou) this.recusada = { pubkey: quem.pubkey, acao: mensagem.acao.tipo }
+    }
+    this.agendarFoto(voltou || recusou)
   }
 
   /** Só o que é para o mestre vira mensagem; o resto é de quem joga e vai na foto pública. */
@@ -97,9 +116,14 @@ export class PonteMestre {
     for (const s of saidas) if (s.para === LOCAL) this.aoMensagem(s.msg)
   }
 
-  private agendarFoto(): void {
+  /** Os sinais de quem a ponte conhece (menos o mestre), do jeito que vão na foto. */
+  private vistosDaMesa(): Vistos {
+    return Object.fromEntries(this.sinais)
+  }
+
+  private agendarFoto(forcar = false): void {
     const mesa = this.sala ? this.mesas[this.sala] : undefined
-    if (!mesa || mesa.versao === this.publicada) return
+    if (!mesa || (mesa.versao === this.publicada && !forcar)) return
     clearTimeout(this.espera)
     this.espera = setTimeout(() => this.publicarFoto(), this.atrasoMs)
   }
@@ -110,6 +134,10 @@ export class PonteMestre {
     this.publicada = mesa.versao
     // created_at sempre cresce: o relay fica com a mais nova de duas fotos no mesmo segundo.
     this.ultimoCriado = Math.max(this.agora(), this.ultimoCriado + 1)
-    this.barramento.publicar(montarFoto(this.sala, mesa.versao, visaoPublica(mesa.estado), this.ultimoCriado))
+    const vistos = this.vistosDaMesa()
+    const foto = visaoPublica(mesa.estado)
+    this.barramento.publicar(montarFoto(this.sala, mesa.versao, Object.keys(vistos).length ? { ...foto, vistos } : foto, this.ultimoCriado, this.recusada ?? undefined))
+    this.recusada = null
+    this.aoMensagem({ t: 'presenca', vistos })
   }
 }

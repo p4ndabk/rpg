@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Conexao, Fase } from '../rede/usarServidor'
+import { SINAL_MS } from '../presenca'
+import type { Conexao, Fase, Presenca } from '../rede/usarServidor'
 import type { MensagemCliente, MensagemServidor } from '../rede/protocolo'
 import { abrirBarramento, type Barramento } from './barramento'
 import { chaveDoNavegador } from './chave'
-import { KIND_FOTO, lerEventoFoto, montarPedido, tagDaSala, type Quem } from './eventos'
+import { KIND_FOTO, lerEventoFoto, lerRecusa, montarPedido, tagDaSala, type Quem } from './eventos'
 import { PonteMestre } from './ponteMestre'
 
 // Os dois lados da sala em relays, com a mesma forma de `usarServidor` (fase + enviar), para a tela usar um ou outro.
@@ -54,6 +55,8 @@ export function usarNostrJogador(
   aoMensagem: (msg: MensagemServidor) => void,
 ): Conexao {
   const [fase, setFase] = useState<Fase>('desligada')
+  const [presenca, setPresenca] = useState<Presenca>({ mestreEm: null, vistos: {} })
+  const [recusadas, setRecusadas] = useState({ n: 0, acao: '' })
   const barramento = useRef<Barramento | null>(null)
   const quem = useRef<Quem | null>(null)
   const inicialRef = useRef(inicial)
@@ -76,6 +79,7 @@ export function usarNostrJogador(
     const entrar = inicialRef.current()
     if (entrar?.t === 'entrar') quem.current = { pubkey: entrar.pubkey, nome: entrar.nome }
     let ultimo = 0
+    let ultimaVersao = -1
     let primeira = true
     let avisouEm = 0
     const parar = b.assinar({ kinds: [KIND_FOTO], authors: [convite.mestre], '#d': [tagDaSala(convite.salaId)] }, (e) => {
@@ -83,7 +87,15 @@ export function usarNostrJogador(
       const lida = lerEventoFoto(e)
       if (!lida || lida.foto.sala.id !== convite.salaId) return
       ultimo = e.created_at
-      aoMensagemRef.current(primeira ? { t: 'ola', papel: 'jogador', versao: lida.versao, foto: lida.foto } : { t: 'foto', versao: lida.versao, foto: lida.foto })
+      // A foto de cada minuto é também o sinal do mestre: guarda a hora e só mexe na sala se algo mudou.
+      setPresenca({ mestreEm: e.created_at, vistos: lida.foto.vistos ?? {} })
+      const recusa = lerRecusa(e)
+      const minha = recusa !== null && recusa.pubkey === quem.current?.pubkey
+      if (minha) setRecusadas((r) => ({ n: r.n + 1, acao: recusa.acao }))
+      if (primeira || minha || lida.versao !== ultimaVersao) {
+        aoMensagemRef.current(primeira ? { t: 'ola', papel: 'jogador', versao: lida.versao, foto: lida.foto } : { t: 'foto', versao: lida.versao, foto: lida.foto })
+      }
+      ultimaVersao = lida.versao
       primeira = false
       // O mestre ainda não me conhece (pedido perdido ou ele recarregou): pede de novo, no máximo a cada 10 s.
       const eu = quem.current
@@ -93,7 +105,11 @@ export function usarNostrJogador(
       }
     })
     if (entrar) pedir(b, entrar)
+    // Sinal de vida a cada minuto, para a Mesa saber quem está online.
+    const sinal = entrar ? window.setInterval(() => pedir(b, { t: 'presenca' }), SINAL_MS) : undefined
     return () => {
+      window.clearInterval(sinal)
+      setPresenca({ mestreEm: null, vistos: {} })
       parar()
       b.fechar()
       barramento.current = null
@@ -104,6 +120,8 @@ export function usarNostrJogador(
 
   return {
     fase,
+    presenca,
+    recusadas,
     recusa: null,
     enviar: (msg) => {
       if (barramento.current) pedir(barramento.current, msg)

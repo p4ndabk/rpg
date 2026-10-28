@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as EventoPonteiro } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as EventoPonteiro } from 'react'
 import { daVez, destaqueEm, nomeColuna, nomeCasa, nomeTerreno, pecaEm, TIPOS, type Casa, type Peca, type Sala, type Terreno as TipoTerreno } from '../../lib/sala'
 import { Botao } from '../ui/Botao'
+import { IconeEscondido } from '../ui/Icones'
 import { Ficha } from './Ficha'
 import { corNaMiniatura, trechosDoCenario } from './MiniMapa'
 import { Terreno } from './Terreno'
@@ -24,6 +25,10 @@ const DESLOCAMENTO = { x: 34, y: 30 }
 const PASSO_ZOOM = 1.25
 /** Casa pequena demais para barra de vida e etiquetas de condição. */
 const CASA_COM_DETALHES = 30
+/** Acima disto, só as casas à vista (mais uma margem) viram elementos; o resto é espaço do mesmo tamanho. */
+const CASAS_PARA_VIRTUALIZAR = 900
+/** Casas a mais, além da janela, para a rolagem rápida não mostrar vazio. */
+const MARGEM = 4
 
 interface GradeProps {
   sala: Sala
@@ -76,8 +81,6 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
   // Pintar: as casas por onde o arrasto passou (um toque é um arrasto de uma casa só).
   const [arrasto, setArrasto] = useState<Casa[] | null>(null)
   const aoPintar = pintura?.aoPintar
-  const previa = new Set((arrasto ?? []).map((c) => `${c.coluna},${c.linha}`))
-  const cenario = new Map((sala.cenario ?? []).map((c) => [`${c.coluna},${c.linha}`, c.terreno]))
 
   // Soltar o botão em qualquer lugar fecha o desenho e pinta tudo de uma vez (um passo só no desfazer).
   useEffect(() => {
@@ -117,6 +120,16 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
     const q = quadro.current
     if (q) setVista({ esquerda: q.scrollLeft, topo: q.scrollTop, largura: q.clientWidth, altura: q.clientHeight, larguraTotal: q.scrollWidth, alturaTotal: q.scrollHeight })
   }
+  // Rolar dispara muitos eventos por segundo: a vista só é lida uma vez por quadro.
+  const quadroPendente = useRef(0)
+  const aoRolarMapa = () => {
+    if (quadroPendente.current) return
+    quadroPendente.current = requestAnimationFrame(() => {
+      quadroPendente.current = 0
+      lerVista()
+    })
+  }
+  useEffect(() => () => cancelAnimationFrame(quadroPendente.current), [])
   useLayoutEffect(() => {
     const q = quadro.current
     const a = ancora.current
@@ -137,6 +150,42 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
     const cy = centro?.y ?? q.clientHeight / 2
     ancora.current = { x: (q.scrollLeft + cx - DESLOCAMENTO.x) / casa, y: (q.scrollTop + cy - DESLOCAMENTO.y) / casa, cx, cy }
     setZoom(alvo)
+  }
+
+  // Pinça: dois dedos no mapa dão zoom (a distância) e arrastam (o ponto do meio). Um dedo segue selecionando, pintando e rolando.
+  const toques = useRef(new Map<number, { x: number; y: number }>())
+  const pinca = useRef<{ distancia: number; casa: number; mundoX: number; mundoY: number } | null>(null)
+  const pontoDosToques = () => {
+    const [a, b] = [...toques.current.values()]
+    const r = quadro.current!.getBoundingClientRect()
+    return { distancia: Math.hypot(a!.x - b!.x, a!.y - b!.y) || 1, x: (a!.x + b!.x) / 2 - r.left, y: (a!.y + b!.y) / 2 - r.top }
+  }
+  function aoToque(e: EventoPonteiro, baixo: boolean) {
+    if (e.pointerType !== 'touch' || !quadro.current) return
+    if (baixo) toques.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    else if (toques.current.has(e.pointerId)) toques.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (toques.current.size !== 2) return
+    const q = quadro.current
+    const p = pontoDosToques()
+    if (!pinca.current) {
+      // Começou a pinça: quem estava pintando larga o traço, e o ponto do mapa sob os dedos vira a âncora.
+      setArrasto(null)
+      pinca.current = { distancia: p.distancia, casa, mundoX: (q.scrollLeft + p.x - DESLOCAMENTO.x) / casa, mundoY: (q.scrollTop + p.y - DESLOCAMENTO.y) / casa }
+      return
+    }
+    const alvo = Math.round(Math.min(CASA_MAX, Math.max(ZOOM_MIN, pinca.current.casa * (p.distancia / pinca.current.distancia))))
+    ancora.current = { x: pinca.current.mundoX, y: pinca.current.mundoY, cx: p.x, cy: p.y }
+    if (alvo === casa) {
+      // O tamanho não mudou, mas os dedos andaram: só arrasta.
+      q.scrollLeft = pinca.current.mundoX * casa + DESLOCAMENTO.x - p.x
+      q.scrollTop = pinca.current.mundoY * casa + DESLOCAMENTO.y - p.y
+      ancora.current = null
+    } else setZoom(alvo)
+  }
+  function aoSoltarToque(e: EventoPonteiro) {
+    if (e.pointerType !== 'touch') return
+    toques.current.delete(e.pointerId)
+    if (toques.current.size < 2) pinca.current = null
   }
 
   // Ctrl (ou ⌘) + roda dá zoom no ponto do cursor. Precisa de ouvinte não passivo para segurar o zoom da página.
@@ -174,9 +223,15 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
     if (pan.current && !pan.current.moveu) pan.current = null
   }
 
-  /** Leva a casa à vista, no meio da janela se estiver fora. */
+  /** Leva a casa ao meio da janela. Conta pela posição, porque a casa pode nem estar desenhada ainda (mapa grande). */
   function irPara(coluna: number, linha: number, suave = true) {
-    casas.current.get(nomeCasa(coluna, linha))?.scrollIntoView({ block: 'center', inline: 'center', behavior: suave && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto' })
+    const q = quadro.current
+    if (!q) return
+    q.scrollTo({
+      left: coluna * casa + DESLOCAMENTO.x + casa / 2 - q.clientWidth / 2,
+      top: linha * casa + DESLOCAMENTO.y + casa / 2 - q.clientHeight / 2,
+      behavior: suave && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'auto',
+    })
   }
   const pecaSelecionada = selecionada ? sala.pecas.find((p) => p.id === selecionada) : undefined
   // Peça escolhida ou na vez fora da janela: o mapa vai até ela (sem mexer se já está à vista).
@@ -184,11 +239,10 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
   useEffect(() => {
     const p = sala.pecas.find((x) => x.id === (selecionada ?? idDaVez))
     const q = quadro.current
-    const botao = p && casas.current.get(nomeCasa(p.coluna, p.linha))
-    if (!q || !botao || (q.scrollWidth <= q.clientWidth && q.scrollHeight <= q.clientHeight)) return
-    const a = botao.getBoundingClientRect()
-    const r = q.getBoundingClientRect()
-    if (a.left < r.left || a.right > r.right || a.top < r.top || a.bottom > r.bottom) botao.scrollIntoView({ block: 'center', inline: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    if (!q || !p || (q.scrollWidth <= q.clientWidth && q.scrollHeight <= q.clientHeight)) return
+    const x = p.coluna * casa + DESLOCAMENTO.x
+    const y = p.linha * casa + DESLOCAMENTO.y
+    if (x < q.scrollLeft || x + casa > q.scrollLeft + q.clientWidth || y < q.scrollTop || y + casa > q.scrollTop + q.clientHeight) irPara(p.coluna, p.linha)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selecionada, idDaVez])
   const vez = daVez(sala)
@@ -211,23 +265,230 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
       linha: Math.min(sala.linhas - 1, Math.max(0, linha + passo[1])),
     }
     setFoco(destino)
-    casas.current.get(nomeCasa(destino.coluna, destino.linha))?.focus()
+    const botao = casas.current.get(nomeCasa(destino.coluna, destino.linha))
+    if (botao) botao.focus()
+    // Mapa grande: a casa de destino só passa a existir depois deste render.
+    else focarDepois.current = destino
   }
+  const focarDepois = useRef<Casa | null>(null)
+  useEffect(() => {
+    const d = focarDepois.current
+    const botao = d && casas.current.get(nomeCasa(d.coluna, d.linha))
+    if (botao) {
+      botao.focus()
+      focarDepois.current = null
+    }
+  }, [foco])
 
-  const colunas = Array.from({ length: sala.colunas }, (_, i) => i)
-  const linhas = Array.from({ length: sala.linhas }, (_, i) => i)
+  // Quais casas viram elementos. Mapa grande: só as da janela (mais a margem) e as que precisam existir (foco, alvo, peça selecionada ou no ar).
+  const virtualizar = sala.colunas * sala.linhas > CASAS_PARA_VIRTUALIZAR
+  const janela = virtualizar ? (vista.largura > 0 ? vista : { ...vista, esquerda: 0, topo: 0, largura: 1200, altura: 800 }) : null
+  const c0 = janela ? Math.max(0, Math.floor((janela.esquerda - DESLOCAMENTO.x) / casa) - MARGEM) : 0
+  const c1 = janela ? Math.min(sala.colunas - 1, Math.ceil((janela.esquerda + janela.largura - DESLOCAMENTO.x) / casa) + MARGEM) : sala.colunas - 1
+  const l0 = janela ? Math.max(0, Math.floor((janela.topo - DESLOCAMENTO.y) / casa) - MARGEM) : 0
+  const l1 = janela ? Math.min(sala.linhas - 1, Math.ceil((janela.topo + janela.altura - DESLOCAMENTO.y) / casa) + MARGEM) : sala.linhas - 1
+  const pecaNoAr = arrastada ? sala.pecas.find((p) => p.id === arrastada) : undefined
 
+  // Rolar não muda nada disto (só a janela, e só quando ela anda de verdade): o React reaproveita os elementos.
+  const desenho = useMemo(() => {
+    const cenario = new Map((sala.cenario ?? []).map((c) => [`${c.coluna},${c.linha}`, c]))
+
+    const renderCasa = (c: number, l: number) => {
+        const peca = pecaEm(sala, c, l)
+        const nome = nomeCasa(c, l)
+        const marcada = peca !== undefined && peca.id === selecionada
+        const ehAlvo = !peca && alvo?.coluna === c && alvo.linha === l
+        const naVez = peca !== undefined && peca.id === vez?.id
+        const tipo = peca && TIPOS.find((t) => t.valor === peca.tipo)!.rotulo.toLowerCase()
+        const celula = cenario.get(`${c},${l}`)
+        const terreno = celula?.terreno
+        const escondido = celula?.oculta === true
+        const destaque = destaqueEm(sala, c, l)
+            const vida = peca !== undefined && mostrarVida(peca)
+        const comDetalhes = casa >= CASA_COM_DETALHES
+        const caida = vida && peca.pv === 0
+        const movel = peca !== undefined && podeMover(peca)
+        const condicoes = peca?.condicoes ?? []
+        const alvoDoArraste = !peca && arrastada !== null && sobre?.coluna === c && sobre.linha === l
+        const detalhes = peca
+          ? [
+              peca.oculta ? 'escondida dos jogadores' : '',
+              vida ? (caida ? 'caída' : `${peca.pv} de ${peca.pvMax} pontos de vida`) : '',
+              ...condicoes.map((c) => c.toLowerCase()),
+            ].filter(Boolean)
+          : []
+        const rotulo = peca
+          ? `${nome}: ${peca.nome}, ${tipo}${detalhes.length ? `, ${detalhes.join(', ')}` : ''}${naVez ? ', na vez' : ''}${marcada ? ', selecionada' : ''}${terreno ? `, sobre ${nomeTerreno(terreno).toLowerCase()}${escondido ? (celula?.disfarce ? ` (escondido dos jogadores, que veem ${nomeTerreno(celula.disfarce).toLowerCase()})` : ' (escondido dos jogadores)') : ''}` : ''}${destaque ? `, destacada pelo mestre${destaque.texto ? `: ${destaque.texto}` : ''}` : ''}`
+          : `${nome}: ${terreno ? `${nomeTerreno(terreno).toLowerCase()}${escondido ? (celula?.disfarce ? ` (escondido dos jogadores, que veem ${nomeTerreno(celula.disfarce).toLowerCase()})` : ' (escondido dos jogadores)') : ''}` : 'vazia'}${ehAlvo ? ', a próxima peça entra aqui' : ''}${destaque ? `, destacada pelo mestre${destaque.texto ? `: ${destaque.texto}` : ''}` : ''}`
+        return (
+          <button
+            key={nome}
+            style={{ gridColumn: c + 2, gridRow: l + 2 }}
+            ref={(el) => {
+              if (el) casas.current.set(nome, el)
+              else casas.current.delete(nome)
+            }}
+            type="button"
+            tabIndex={c === focoValido.coluna && l === focoValido.linha ? 0 : -1}
+            onFocus={() => setFoco({ coluna: c, linha: l })}
+            onClick={(e) => {
+              if (pintura) {
+                // O mouse e o dedo já pintaram no arrasto; o clique sem ponteiro (teclado) pinta a casa.
+                if (e.detail === 0) pintura.aoPintar([{ coluna: c, linha: l }])
+                return
+              }
+              aoTocarCasa(c, l)
+            }}
+            onPointerDown={(e) => {
+              if (!pintura || e.button !== 0) return
+              e.preventDefault()
+              // No toque o ponteiro fica preso à primeira casa; soltar o prendimento deixa as outras casas receberem o arrasto.
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+              setArrasto([{ coluna: c, linha: l }])
+            }}
+            // Sem olhar `arrasto` aqui: estas casas são reaproveitadas enquanto se pinta, e a forma funcional sempre vê o traço atual.
+            onPointerEnter={() => setArrasto((a) => (a && !a.some((v) => v.coluna === c && v.linha === l) ? [...a, { coluna: c, linha: l }] : a))}
+            onKeyDown={(e) => aoTeclar(e, c, l)}
+            onDoubleClick={() => peca && !pintura && aoAbrirFicha && podeMover(peca) && aoAbrirFicha(peca)}
+            onContextMenu={(e) => {
+              if (pintura) return
+              if (peca) {
+                if (!aoMenuPeca || !podeMover(peca)) return
+                e.preventDefault()
+                aoMenuPeca(peca, { x: e.clientX, y: e.clientY })
+              } else if (aoMenuCasa) {
+                e.preventDefault()
+                aoMenuCasa({ coluna: c, linha: l }, { x: e.clientX, y: e.clientY })
+              }
+            }}
+            onDragOver={(e) => {
+              if (arrastada === null || peca) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              if (sobre?.coluna !== c || sobre.linha !== l) setSobre({ coluna: c, linha: l })
+            }}
+            onDrop={(e) => {
+              if (arrastada === null || peca) return
+              e.preventDefault()
+              aoSoltar(arrastada, c, l)
+              setArrastada(null)
+              setSobre(null)
+            }}
+            aria-label={rotulo}
+            title={destaque?.texto}
+            className={`@container relative grid place-items-center ${pintura ? 'cursor-crosshair' : ''} ${alvoDoArraste ? 'bg-tinta/20 outline-2 -outline-offset-4 outline-tinta outline-dashed' : ''} border-t border-l border-tinta/20 focus-visible:-outline-offset-4 ${
+              marcada || ehAlvo ? 'bg-tinta/10 outline-2 -outline-offset-4 outline-dashed' : ''
+            } ${marcada ? 'outline-vermelho' : ''} ${ehAlvo ? 'outline-tinta' : ''} ${
+              naVez && !marcada ? 'bg-tinta/10' : ''
+            } ${selecionada && !peca ? 'hover:bg-tinta/10' : ''}`}
+          >
+            {terreno && <Terreno tipo={terreno} className={escondido ? 'opacity-45' : ''} />}
+            {escondido && (
+              <>
+                <span aria-hidden="true" className="pointer-events-none absolute inset-0.5 z-10 border-2 border-dashed border-tinta" />
+                {casa >= CASA_COM_DETALHES && (
+                  <span aria-hidden="true" className="pointer-events-none absolute top-0.5 left-0.5 z-20 grid place-items-center rounded-cordel bg-superficie p-0.5 text-tinta">
+                    <IconeEscondido className="size-3.5" />
+                  </span>
+                )}
+              </>
+            )}
+            {destaque && (
+              <>
+                <span aria-hidden="true" className="pointer-events-none absolute inset-0.5 z-20 border-4 border-vermelho motion-safe:animate-destacar" />
+                {destaque.texto && casa >= 40 && (
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 z-20 truncate bg-vermelho px-1 text-center text-xs leading-4 font-bold text-sobre-vermelho">
+                    {destaque.texto}
+                  </span>
+                )}
+              </>
+            )}
+            {peca ? (
+              <>
+                {/* Só a ficha é arrastável: botão como origem de arraste falha em alguns navegadores. */}
+                <span
+                  draggable={movel && !pintura}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', peca.id)
+                    e.dataTransfer.effectAllowed = 'move'
+                    setArrastada(peca.id)
+                  }}
+                  onDragEnd={() => {
+                    setArrastada(null)
+                    setSobre(null)
+                  }}
+                  className={`relative z-10 grid size-full place-items-center ${movel && !pintura ? 'cursor-grab' : ''} ${arrastada === peca.id ? 'opacity-40' : ''} ${peca.oculta ? 'opacity-50' : ''}`}
+                >
+                  <Ficha peca={peca} erguida={marcada} naVez={naVez} noTabuleiro caida={caida} />
+                </span>
+                {vida && comDetalhes && <BarraVida pv={peca.pv} max={peca.pvMax} />}
+                {condicoes.length > 0 && comDetalhes && (
+                  <span
+                    aria-hidden="true"
+                    title={condicoes.join(', ')}
+                    className="absolute top-0.5 right-0.5 grid min-w-4 place-items-center rounded-cordel border border-borda bg-vermelho px-0.5 text-xs leading-4 font-bold text-sobre-vermelho"
+                  >
+                    {condicoes.length > 1 ? condicoes.length : condicoes[0]![0]}
+                  </span>
+                )}
+              </>
+            ) : (
+              ehAlvo && (
+                <span aria-hidden="true" className="relative z-10 font-display text-xl text-tinta-suave @[4rem]:text-3xl">
+                  +
+                </span>
+              )
+            )}
+          </button>
+        )
+    }
+
+    const a: Casa[] = []
+    for (let l = l0; l <= l1; l++) for (let c = c0; c <= c1; c++) a.push({ coluna: c, linha: l })
+    // Quem precisa existir mesmo fora da janela, sem repetir e sem sair da ordem do teclado (linha a linha).
+    const extras = [focoValido, alvo, pecaSelecionada, pecaNoAr].filter((x): x is Casa | Peca => !!x)
+    const vistas = new Set(a.map((x) => `${x.linha},${x.coluna}`))
+    for (const x of extras) if (!vistas.has(`${x.linha},${x.coluna}`)) a.push({ coluna: x.coluna, linha: x.linha })
+    a.sort((x, y) => x.linha - y.linha || x.coluna - y.coluna)
+
+    return {
+      rotulosColuna: Array.from({ length: c1 - c0 + 1 }, (_, i) => c0 + i).map((c) => (
+        <span key={c} aria-hidden="true" style={{ gridColumn: c + 2, gridRow: 1 }} className="pb-1 text-center text-xs font-bold text-tinta-suave">
+          {rotuloVisivel(c, casa) ? nomeColuna(c) : ''}
+        </span>
+      )),
+      rotulosLinha: Array.from({ length: l1 - l0 + 1 }, (_, i) => l0 + i).map((l) => (
+        <span key={l} aria-hidden="true" style={{ gridColumn: 1, gridRow: l + 2 }} className="self-center pr-1 text-right text-xs font-bold text-tinta-suave">
+          {rotuloVisivel(l, casa) ? l + 1 : ''}
+        </span>
+      )),
+      casas: a.map((x) => renderCasa(x.coluna, x.linha)),
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sala, selecionada, alvo, casa, arrastada, sobre, focoValido.coluna, focoValido.linha, c0, c1, l0, l1, pintura, podeMover, mostrarVida, aoTocarCasa, aoMenuPeca, aoMenuCasa, aoAbrirFicha, aoSoltar, vez?.id])
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
       {/* O espaço medido ocupa o que sobra da coluna (na tela estreita, um pedaço da altura da janela); a moldura fica no centro dele. */}
       <div ref={espaco} className="relative grid h-[62dvh] min-h-72 min-w-0 grid-cols-1 place-items-center overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
       <div
         ref={quadro}
-        onScroll={lerVista}
-        onPointerDown={aoIniciarPan}
-        onPointerMove={aoMoverPan}
-        onPointerUp={aoSoltarPan}
-        onPointerCancel={aoSoltarPan}
+        onScroll={aoRolarMapa}
+        onPointerDown={(e) => {
+          aoToque(e, true)
+          aoIniciarPan(e)
+        }}
+        onPointerMove={(e) => {
+          aoToque(e, false)
+          aoMoverPan(e)
+        }}
+        onPointerUp={(e) => {
+          aoSoltarToque(e)
+          aoSoltarPan(e)
+        }}
+        onPointerCancel={(e) => {
+          aoSoltarToque(e)
+          aoSoltarPan(e)
+        }}
         onClickCapture={(e) => {
           if (pan.current?.moveu) {
             e.stopPropagation()
@@ -235,8 +496,8 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
           }
           pan.current = null
         }}
-        // No modo de pintar, o dedo desenha em vez de rolar; fora dele, rolar e dar zoom com dois dedos é do navegador.
-        style={{ maxWidth: area.largura || undefined, maxHeight: area.altura || undefined, touchAction: pintura ? 'none' : undefined }}
+        // No modo de pintar, o dedo desenha em vez de rolar. Fora dele, um dedo rola (do navegador) e dois dedos dão zoom (daqui: sem `pinch-zoom` o navegador deixa a pinça para a página).
+        style={{ maxWidth: area.largura || undefined, maxHeight: area.altura || undefined, touchAction: pintura ? 'none' : 'pan-x pan-y' }}
         className={`overflow-auto overscroll-contain rounded-cordel border-2 border-borda bg-superficie shadow-carimbo ${mao ? 'cursor-grab active:cursor-grabbing' : ''}`}
       >
         <div
@@ -249,157 +510,13 @@ export function Grade({ sala, selecionada, alvo, podeMover, mostrarVida, pintura
           }}
         >
           {/* Cabeçalhos de coordenada: decorativos, o nome da casa já está no rótulo de cada botão. */}
-          <span aria-hidden="true" />
-          {colunas.map((c) => (
-            <span key={c} aria-hidden="true" className="pb-1 text-center text-xs font-bold text-tinta-suave">
-              {rotuloVisivel(c, casa) ? nomeColuna(c) : ''}
-            </span>
-          ))}
-          {linhas.map((l) => (
-            <div key={l} className="contents">
-              <span aria-hidden="true" className="self-center pr-1 text-right text-xs font-bold text-tinta-suave">
-                {rotuloVisivel(l, casa) ? l + 1 : ''}
-              </span>
-              {colunas.map((c) => {
-                const peca = pecaEm(sala, c, l)
-                const nome = nomeCasa(c, l)
-                const marcada = peca !== undefined && peca.id === selecionada
-                const ehAlvo = !peca && alvo?.coluna === c && alvo.linha === l
-                const naVez = peca !== undefined && peca.id === vez?.id
-                const tipo = peca && TIPOS.find((t) => t.valor === peca.tipo)!.rotulo.toLowerCase()
-                const terreno = cenario.get(`${c},${l}`)
-                const destaque = destaqueEm(sala, c, l)
-                const naPrevia = previa.has(`${c},${l}`)
-                const vida = peca !== undefined && mostrarVida(peca)
-                const comDetalhes = casa >= CASA_COM_DETALHES
-                const caida = vida && peca.pv === 0
-                const movel = peca !== undefined && podeMover(peca)
-                const condicoes = peca?.condicoes ?? []
-                const alvoDoArraste = !peca && arrastada !== null && sobre?.coluna === c && sobre.linha === l
-                const detalhes = peca
-                  ? [
-                      peca.oculta ? 'escondida dos jogadores' : '',
-                      vida ? (caida ? 'caída' : `${peca.pv} de ${peca.pvMax} pontos de vida`) : '',
-                      ...condicoes.map((c) => c.toLowerCase()),
-                    ].filter(Boolean)
-                  : []
-                const rotulo = peca
-                  ? `${nome}: ${peca.nome}, ${tipo}${detalhes.length ? `, ${detalhes.join(', ')}` : ''}${naVez ? ', na vez' : ''}${marcada ? ', selecionada' : ''}${terreno ? `, sobre ${nomeTerreno(terreno).toLowerCase()}` : ''}${destaque ? `, destacada pelo mestre${destaque.texto ? `: ${destaque.texto}` : ''}` : ''}`
-                  : `${nome}: ${terreno ? nomeTerreno(terreno).toLowerCase() : 'vazia'}${ehAlvo ? ', a próxima peça entra aqui' : ''}${destaque ? `, destacada pelo mestre${destaque.texto ? `: ${destaque.texto}` : ''}` : ''}`
-                return (
-                  <button
-                    key={nome}
-                    ref={(el) => {
-                      if (el) casas.current.set(nome, el)
-                      else casas.current.delete(nome)
-                    }}
-                    type="button"
-                    tabIndex={c === focoValido.coluna && l === focoValido.linha ? 0 : -1}
-                    onFocus={() => setFoco({ coluna: c, linha: l })}
-                    onClick={(e) => {
-                      if (pintura) {
-                        // O mouse e o dedo já pintaram no arrasto; o clique sem ponteiro (teclado) pinta a casa.
-                        if (e.detail === 0) pintura.aoPintar([{ coluna: c, linha: l }])
-                        return
-                      }
-                      aoTocarCasa(c, l)
-                    }}
-                    onPointerDown={(e) => {
-                      if (!pintura || e.button !== 0) return
-                      e.preventDefault()
-                      // No toque o ponteiro fica preso à primeira casa; soltar o prendimento deixa as outras casas receberem o arrasto.
-                      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-                      setArrasto([{ coluna: c, linha: l }])
-                    }}
-                    onPointerEnter={() => {
-                      if (!arrasto) return
-                      setArrasto((a) => (a && !a.some((v) => v.coluna === c && v.linha === l) ? [...a, { coluna: c, linha: l }] : a))
-                    }}
-                    onKeyDown={(e) => aoTeclar(e, c, l)}
-                    onDoubleClick={() => peca && !pintura && aoAbrirFicha && podeMover(peca) && aoAbrirFicha(peca)}
-                    onContextMenu={(e) => {
-                      if (pintura) return
-                      if (peca) {
-                        if (!aoMenuPeca || !podeMover(peca)) return
-                        e.preventDefault()
-                        aoMenuPeca(peca, { x: e.clientX, y: e.clientY })
-                      } else if (aoMenuCasa) {
-                        e.preventDefault()
-                        aoMenuCasa({ coluna: c, linha: l }, { x: e.clientX, y: e.clientY })
-                      }
-                    }}
-                    onDragOver={(e) => {
-                      if (arrastada === null || peca) return
-                      e.preventDefault()
-                      e.dataTransfer.dropEffect = 'move'
-                      if (sobre?.coluna !== c || sobre.linha !== l) setSobre({ coluna: c, linha: l })
-                    }}
-                    onDrop={(e) => {
-                      if (arrastada === null || peca) return
-                      e.preventDefault()
-                      aoSoltar(arrastada, c, l)
-                      setArrastada(null)
-                      setSobre(null)
-                    }}
-                    aria-label={rotulo}
-                    title={destaque?.texto}
-                    className={`@container relative grid place-items-center ${pintura ? 'cursor-crosshair' : ''} ${naPrevia ? 'bg-vermelho/30 outline-2 -outline-offset-2 outline-vermelho' : ''} ${alvoDoArraste ? 'bg-tinta/20 outline-2 -outline-offset-4 outline-tinta outline-dashed' : ''} border-t border-l border-tinta/20 focus-visible:-outline-offset-4 ${
-                      marcada || ehAlvo ? 'bg-tinta/10 outline-2 -outline-offset-4 outline-dashed' : ''
-                    } ${marcada ? 'outline-vermelho' : ''} ${ehAlvo ? 'outline-tinta' : ''} ${
-                      naVez && !marcada ? 'bg-tinta/10' : ''
-                    } ${selecionada && !peca ? 'hover:bg-tinta/10' : ''}`}
-                  >
-                    {terreno && <Terreno tipo={terreno} />}
-                    {destaque && (
-                      <>
-                        <span aria-hidden="true" className="pointer-events-none absolute inset-0.5 z-20 border-4 border-vermelho motion-safe:animate-destacar" />
-                        {destaque.texto && casa >= 40 && (
-                          <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 z-20 truncate bg-vermelho px-1 text-center text-xs leading-4 font-bold text-sobre-vermelho">
-                            {destaque.texto}
-                          </span>
-                        )}
-                      </>
-                    )}
-                    {peca ? (
-                      <>
-                        {/* Só a ficha é arrastável: botão como origem de arraste falha em alguns navegadores. */}
-                        <span
-                          draggable={movel && !pintura}
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('text/plain', peca.id)
-                            e.dataTransfer.effectAllowed = 'move'
-                            setArrastada(peca.id)
-                          }}
-                          onDragEnd={() => {
-                            setArrastada(null)
-                            setSobre(null)
-                          }}
-                          className={`relative z-10 grid size-full place-items-center ${movel && !pintura ? 'cursor-grab' : ''} ${arrastada === peca.id ? 'opacity-40' : ''} ${peca.oculta ? 'opacity-50' : ''}`}
-                        >
-                          <Ficha peca={peca} erguida={marcada} naVez={naVez} noTabuleiro caida={caida} />
-                        </span>
-                        {vida && comDetalhes && <BarraVida pv={peca.pv} max={peca.pvMax} />}
-                        {condicoes.length > 0 && comDetalhes && (
-                          <span
-                            aria-hidden="true"
-                            title={condicoes.join(', ')}
-                            className="absolute top-0.5 right-0.5 grid min-w-4 place-items-center rounded-cordel border border-borda bg-vermelho px-0.5 text-xs leading-4 font-bold text-sobre-vermelho"
-                          >
-                            {condicoes.length > 1 ? condicoes.length : condicoes[0]![0]}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      ehAlvo && (
-                        <span aria-hidden="true" className="relative z-10 font-display text-xl text-tinta-suave @[4rem]:text-3xl">
-                          +
-                        </span>
-                      )
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+          <span aria-hidden="true" style={{ gridColumn: 1, gridRow: 1 }} />
+          {desenho.rotulosColuna}
+          {desenho.rotulosLinha}
+          {desenho.casas}
+          {/* A prévia do traço é uma camada à parte: pintar não refaz as casas. */}
+          {(arrasto ?? []).map((c) => (
+            <span key={`${c.coluna},${c.linha}`} aria-hidden="true" style={{ gridColumn: c.coluna + 2, gridRow: c.linha + 2 }} className="pointer-events-none z-20 bg-vermelho/30 outline-2 -outline-offset-2 outline-vermelho" />
           ))}
         </div>
       </div>

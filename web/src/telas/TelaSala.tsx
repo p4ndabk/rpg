@@ -19,17 +19,22 @@ import { PainelPeca } from '../components/sala/PainelPeca'
 import { aplicarModelo, salaDoModelo, type Modelo } from '../lib/modelos'
 import { ModelosDeMapa } from '../components/sala/ModelosDeMapa'
 import { PainelDestaque } from '../components/sala/PainelDestaque'
+import { Ferramentas, type Ferramenta } from '../components/sala/Ferramentas'
+import { RoteiroDoMestre } from '../components/sala/RoteiroDoMestre'
 import { PainelMesa } from '../components/sala/PainelMesa'
 import { PainelRede, TEXTO_FASE, TEXTO_FASE_RELAYS } from '../components/sala/PainelRede'
 import { Pecas } from '../components/sala/Pecas'
 import { VidaBase } from '../components/sala/VidaBase'
 import { Botao } from '../components/ui/Botao'
+import { IconeCompartilhar, IconeDesfazer, IconeRefazer } from '../components/ui/Icones'
 import { usarUsuario } from '../components/usuario/Usuario'
 import { usarArmazenado } from '../lib/armazenamento'
 import { lerHistorico, noHistorico, noMomento, rolagemAvulsa, type Rolagem } from '../lib/dados'
 import { type Estado, type Jogador, type MensagemCliente, type MensagemServidor } from '../lib/rede/protocolo'
 import { guardarServidor, urlDoServidor } from '../lib/rede/servidor'
 import { usarServidor } from '../lib/rede/usarServidor'
+import { lerDispensadas, passosDoRoteiro, roteiroCompleto } from '../lib/roteiro'
+import { haQuanto, idadeS, mestreAusente, situacaoDe, type Presenca, type Vistos } from '../lib/presenca'
 import { chavePublicaDoNavegador } from '../lib/nostr/chave'
 import { baseDoConvite, guardarBase, lerConexaoSala, montarConvite } from '../lib/nostr/convite'
 import { guardarRelays, RELAYS_PADRAO, relaysDoMestre } from '../lib/nostr/relays'
@@ -42,9 +47,12 @@ import {
   alternarCondicao,
   alternarOculta,
   alternarDestaque,
+  cenarioVisivel,
+  disfarcarCenario,
   casaBloqueada,
   destaqueEm,
   limparDestaques,
+  ocultarCenario,
   casaLivrePerto,
   criarSala,
   daVez,
@@ -59,6 +67,8 @@ import {
   iniciarCombate,
   lerSala,
   moverPeca,
+  motivoDoMovimento,
+  type MotivoDoMovimento,
   nomeCasa,
   nomeTerreno,
   passarVez,
@@ -133,6 +143,13 @@ export function TelaSala() {
   const [selecionada, setSelecionada] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<Casa | null>(null)
   const [aviso, setAviso] = useState('')
+  // Presença (só nos relays): sinais que o mestre recebeu e um relógio que gira a cada 30 s para o "visto há…" andar.
+  const [vistosMestre, setVistosMestre] = useState<Vistos>({})
+  const [agoraMs, setAgoraMs] = useState(() => Date.now())
+  useEffect(() => {
+    const t = window.setInterval(() => setAgoraMs(Date.now()), 30_000)
+    return () => window.clearInterval(t)
+  }, [])
   const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | 'mesa' | 'modelos' | null>(null)
   const [anunciada, setAnunciada] = useState<Rolagem | null>(null)
   // A última rolagem (inclusive as secretas) e a última de dano já aplicada, para o botão não aplicar duas vezes.
@@ -148,9 +165,15 @@ export function TelaSala() {
   // Destacar casas para a mesa toda ver, com uma frase curta opcional.
   const [destaqueAberto, setDestaqueAberto] = useState(false)
   const [textoDestaque, setTextoDestaque] = useState('')
+  // O que o mestre pintar já nasce escondido de quem joga (armadilha, porta secreta).
+  const [pintarEscondido, setPintarEscondido] = useState(false)
   const [terreno, setTerreno] = useState<Terreno | null>('parede')
   // Desfazer: as últimas mudanças da sala, da mais nova para a mais velha. Só vale enquanto a página estiver aberta.
   const [pilha, setPilha] = useState<Passo[]>([])
+  // Salas em que o mestre dispensou o roteiro "Prepare a mesa".
+  const [roteiroDispensado, setRoteiroDispensado] = usarArmazenado<string[]>('rpg:sala:roteiro', [], lerDispensadas)
+  // Refazer: o que foi desfeito, até a próxima mudança.
+  const [futuro, setFuturo] = useState<Passo[]>([])
   const menu = useRef<HTMLDetailsElement>(null)
   // Os atalhos de teclado chamam as funções da renderização atual por aqui.
   const atalhos = useRef<Record<string, () => void>>({})
@@ -222,6 +245,8 @@ export function TelaSala() {
       versaoRef.current = m.versao
       anunciarSeNova(m.estado.log, false)
       adotar(m.estado)
+    } else if (m.t === 'presenca') {
+      setVistosMestre(m.vistos)
     } else if (m.t === 'conflito') {
       versaoRef.current = m.versao
       emVoo.current = false
@@ -263,6 +288,18 @@ export function TelaSala() {
   const jogadorNoNostr = usarNostrJogador(remoto ? convite : null, inicialDoJogador, aoMensagemDoJogador)
   const conexaoJogador = convite ? jogadorNoNostr : jogadorNoServidor
   const fase = remoto ? conexaoJogador.fase : conexaoMestre.fase
+  // Quem está na mesa: só existe nos relays. Para o mestre, os sinais vêm da ponte; para quem joga, da foto.
+  const comPresenca = remoto ? !!convite : redeAtiva && modo === 'nostr'
+  const vistos = remoto ? (conexaoJogador.presenca?.vistos ?? {}) : vistosMestre
+  const mestreEm = remoto ? (conexaoJogador.presenca?.mestreEm ?? null) : null
+  // O mestre recusou uma jogada (parede escondida, por exemplo): a foto já trouxe a sala real, aqui só se explica.
+  const recusadas = remoto ? conexaoJogador.recusadas?.n ?? 0 : 0
+  useEffect(() => {
+    if (recusadas > 0) setAviso(conexaoJogador.recusadas?.acao === 'mover' ? 'Algo impediu o movimento. A peça voltou.' : 'O mestre não aceitou essa jogada.')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recusadas])
+  const mestreSumido = remoto && !!convite && mestreEm !== null && mestreAusente(agoraMs, mestreEm)
+  const presencaDaMesa: Presenca | undefined = comPresenca ? { vistos, mestreEm, agoraMs } : undefined
   const emitir = (acao: Parameters<typeof conexaoJogador.enviar>[0] extends infer M ? (M extends { t: 'acao'; acao: infer A } ? A : never) : never) =>
     conexaoJogador.enviar({ t: 'acao', acao })
 
@@ -272,8 +309,13 @@ export function TelaSala() {
       const tecla = e.key.toLowerCase()
       if ((e.ctrlKey || e.metaKey) && tecla === 'z') {
         e.preventDefault()
-        atalhos.current.z?.()
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && ['n', 'h', 'd'].includes(tecla)) {
+        // Ctrl+Shift+Z refaz; Ctrl+Z desfaz.
+        if (e.shiftKey) atalhos.current.y?.()
+        else atalhos.current.z?.()
+      } else if ((e.ctrlKey || e.metaKey) && tecla === 'y') {
+        e.preventDefault()
+        atalhos.current.y?.()
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && ['n', 'h', 'd', 'm', 'c', 'e'].includes(tecla)) {
         if (atalhos.current[tecla]) {
           e.preventDefault()
           atalhos.current[tecla]!()
@@ -395,6 +437,7 @@ export function TelaSala() {
         aoCriar={(nome, colunas, linhas, modelo) => {
           setSala(modelo ? salaDoModelo(modelo, nome, undefined, usuario.pubkey) : criarSala(nome, colunas, linhas, undefined, usuario.pubkey))
           setPilha([])
+          setFuturo([])
           registrar({ tipo: 'sala-criada' })
         }}
       />
@@ -405,7 +448,8 @@ export function TelaSala() {
   const eu = usuario.pubkey
   const mestre = ehMestre(atual, eu)
   // Quem joga não vê peça escondida: a tela inteira trabalha com esta "visão" da sala.
-  const visao: Sala = { ...atual, pecas: pecasVisiveis(atual, mestre) }
+  // Quem joga não vê peça nem cenário escondidos (na rede a foto já vem sem eles; isto cobre a sala só neste navegador).
+  const visao: Sala = mestre ? { ...atual, pecas: pecasVisiveis(atual, mestre) } : { ...atual, pecas: pecasVisiveis(atual, false), ...(atual.cenario ? { cenario: cenarioVisivel(atual.cenario) } : {}) }
   const vez = daVez(visao)
   const vezReal = daVez(atual)
   const pecaSelecionada = visao.pecas.find((p) => p.id === selecionada)
@@ -422,6 +466,7 @@ export function TelaSala() {
   /** Toda mudança da sala passa por aqui, para dar para desfazer. */
   function mudar(nova: Sala, rotulo: string) {
     setPilha((p) => [...p.slice(-(MAX_DESFAZER - 1)), { sala: atual, rotulo }])
+    setFuturo([])
     setSala(nova)
   }
 
@@ -429,9 +474,26 @@ export function TelaSala() {
     const passo = pilha[pilha.length - 1]
     if (!passo) return
     setPilha((p) => p.slice(0, -1))
+    setFuturo((f) => [...f, { sala: atual, rotulo: passo.rotulo }])
     setSala(passo.sala)
     if (selecionada && !passo.sala.pecas.some((p) => p.id === selecionada)) setSelecionada(null)
     setAviso(`Desfeito: ${passo.rotulo}.`)
+  }
+
+  function refazer() {
+    const passo = futuro[futuro.length - 1]
+    if (!passo) return
+    setFuturo((f) => f.slice(0, -1))
+    setPilha((p) => [...p.slice(-(MAX_DESFAZER - 1)), { sala: atual, rotulo: passo.rotulo }])
+    setSala(passo.sala)
+    if (selecionada && !passo.sala.pecas.some((p) => p.id === selecionada)) setSelecionada(null)
+    setAviso(`Refeito: ${passo.rotulo}.`)
+  }
+
+  const ferramenta: Ferramenta = cenarioAberto ? 'cenario' : destaqueAberto ? 'destaque' : 'mover'
+  function escolherFerramenta(f: Ferramenta) {
+    setCenarioAberto(f === 'cenario')
+    setDestaqueAberto(f === 'destaque')
   }
 
   function selecionar(id: string | null) {
@@ -440,6 +502,9 @@ export function TelaSala() {
     const peca = visao.pecas.find((p) => p.id === id)
     setAviso(peca ? `Selecionou ${peca.nome}.${mestre ? '' : ' Toque numa casa vazia para levar até lá.'}` : '')
   }
+
+  const textoDoMotivo = (m: MotivoDoMovimento, coluna: number, linha: number) =>
+    m === 'fora' ? `${nomeCasa(coluna, linha)} fica fora do mapa.` : m === 'ocupada' ? `${nomeCasa(coluna, linha)} está ocupada.` : `Algo bloqueia o caminho em ${nomeCasa(coluna, linha)}.`
 
   function aoTocarCasa(coluna: number, linha: number) {
     // No modo Destaque o toque liga ou desliga o destaque da casa, em vez de selecionar.
@@ -458,7 +523,7 @@ export function TelaSala() {
     }
     if (pecaSelecionada) {
       const nova = moverPeca(atual, pecaSelecionada.id, coluna, linha)
-      if (nova === atual) return setAviso(`${nomeCasa(coluna, linha)} ${casaBloqueada(atual, coluna, linha) ? 'está bloqueada' : 'está ocupada'}.`)
+      if (nova === atual) return setAviso(textoDoMotivo(motivoDoMovimento(atual, pecaSelecionada.id, coluna, linha) ?? 'bloqueada', coluna, linha))
       mudar(nova, `mover ${pecaSelecionada.nome}`)
       setSelecionada(null)
       setAviso(`${pecaSelecionada.nome} foi para ${nomeCasa(coluna, linha)}.`)
@@ -542,7 +607,7 @@ export function TelaSala() {
     const peca = visao.pecas.find((p) => p.id === id)
     if (!peca || !moveEu(peca)) return
     const nova = moverPeca(atual, id, coluna, linha)
-    if (nova === atual) return
+    if (nova === atual) return setAviso(textoDoMotivo(motivoDoMovimento(atual, id, coluna, linha) ?? 'bloqueada', coluna, linha))
     mudar(nova, `mover ${peca.nome}`)
     setSelecionada(null)
     setAlvo(null)
@@ -584,9 +649,26 @@ export function TelaSala() {
   }
 
   function aoPintar(casas: Casa[]) {
-    const nova = pintar(atual, casas, terreno)
+    const nova = pintar(atual, casas, terreno, pintarEscondido)
     if (nova === atual || JSON.stringify(nova.cenario) === JSON.stringify(atual.cenario)) return
-    mudar(nova, terreno ? `pintar ${nomeTerreno(terreno).toLowerCase()}` : 'apagar cenário')
+    mudar(nova, terreno ? `pintar ${nomeTerreno(terreno).toLowerCase()}${pintarEscondido ? ' escondido' : ''}` : 'apagar cenário')
+  }
+
+  /** Esconde ou revela o cenário de quem joga: uma casa, todas do mesmo terreno ou tudo. */
+  function aoOcultarCenario(oculta: boolean, filtro?: (c: NonNullable<Sala['cenario']>[number]) => boolean, rotulo = 'o cenário') {
+    const nova = ocultarCenario(atual, oculta, filtro)
+    if (nova === atual) return
+    const n = (nova.cenario ?? []).filter((c, i) => c !== atual.cenario?.[i]).length
+    mudar(nova, `${oculta ? 'esconder' : 'revelar'} ${rotulo}`)
+    setAviso(`${n} ${n === 1 ? 'casa' : 'casas'} de cenário ${oculta ? 'escondidas dos jogadores' : 'reveladas'}.`)
+  }
+
+  /** Faz quem joga ver outra coisa no lugar do terreno escondido (a porta secreta que parece parede). */
+  function aoDisfarcar(casa: Casa, como: Terreno | null) {
+    const nova = disfarcarCenario(atual, casa, como)
+    if (nova === atual) return
+    mudar(nova, como ? `disfarçar ${nomeCasa(casa.coluna, casa.linha)} de ${nomeTerreno(como).toLowerCase()}` : `tirar o disfarce de ${nomeCasa(casa.coluna, casa.linha)}`)
+    setAviso(como ? `${nomeCasa(casa.coluna, casa.linha)} aparece como ${nomeTerreno(como).toLowerCase()} para quem joga.` : `${nomeCasa(casa.coluna, casa.linha)} voltou a ficar escondida.`)
   }
 
   /** Pinta (ou limpa) uma casa só, pelo menu do botão direito. */
@@ -678,6 +760,7 @@ export function TelaSala() {
     setRedeAtiva(false)
     setNotas('')
     setPilha([])
+    setFuturo([])
     setSelecionada(null)
     setAlvo(null)
     setAviso('')
@@ -691,6 +774,10 @@ export function TelaSala() {
         h: aoAlternarOculta,
         d: () => document.getElementById('valor-pv')?.focus(),
         z: desfazer,
+        y: refazer,
+        m: () => escolherFerramenta('mover'),
+        c: () => escolherFerramenta('cenario'),
+        e: () => escolherFerramenta('destaque'),
       }
     : {}
 
@@ -725,13 +812,22 @@ export function TelaSala() {
                 >
                   {fase === 'ok' ? 'Conectado' : (remoto ? !!convite : modo === 'nostr') ? TEXTO_FASE_RELAYS[fase].split(';')[0] : TEXTO_FASE[fase].split(';')[0]}
                 </span>
+                {remoto && !!convite && fase === 'ok' && (
+                  <>
+                    {' · '}
+                    <span role="status" className={`inline-flex items-center gap-1 font-bold ${mestreEm !== null && !mestreSumido ? 'text-verde' : 'text-vermelho'}`}>
+                      <span aria-hidden className={`size-2.5 border-2 border-current ${mestreEm !== null && !mestreSumido ? 'bg-current' : ''}`} />
+                      {mestreEm === null ? 'Esperando o mestre' : mestreSumido ? `Mestre sem sinal ${haQuanto(idadeS(agoraMs, mestreEm))}` : 'Mestre na mesa'}
+                    </span>
+                  </>
+                )}
               </>
             )}
           </p>
         </div>
         <div className="flex min-w-0 flex-[2] basis-72 flex-wrap items-center gap-x-3 gap-y-1">
           <p role="status" aria-live="polite" className="min-w-0 flex-1 font-bold">
-            {aviso || dicaPadrao}
+            {aviso || (mestreSumido ? 'O mestre saiu da mesa. Suas jogadas ficam esperando ele voltar.' : dicaPadrao)}
           </p>
           {!mestre && pecaSelecionada && (
             <div className="flex flex-wrap items-center gap-2">
@@ -761,6 +857,36 @@ export function TelaSala() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {mestre && (
+            <>
+              <Ferramentas ativa={ferramenta} aoEscolher={escolherFerramenta} />
+              <div className="flex gap-1.5">
+                <Botao
+                  tamanho="pequeno"
+                  disabled={!ultimoPasso}
+                  className="gap-1.5"
+                  aria-label={ultimoPasso ? `Desfazer: ${ultimoPasso.rotulo}` : 'Desfazer'}
+                  title={ultimoPasso ? `Desfazer: ${ultimoPasso.rotulo} (Ctrl+Z)` : 'Nada para desfazer (Ctrl+Z)'}
+                  onClick={desfazer}
+                >
+                  <IconeDesfazer />
+                  <span className="max-2xl:sr-only">Desfazer</span>
+                </Botao>
+                <Botao
+                  tamanho="pequeno"
+                  disabled={futuro.length === 0}
+                  className="gap-1.5"
+                  aria-label={futuro.length > 0 ? `Refazer: ${futuro[futuro.length - 1]!.rotulo}` : 'Refazer'}
+                  title={futuro.length > 0 ? `Refazer: ${futuro[futuro.length - 1]!.rotulo} (Ctrl+Shift+Z)` : 'Nada para refazer (Ctrl+Shift+Z)'}
+                  onClick={refazer}
+                >
+                  <IconeRefazer />
+                  <span className="max-2xl:sr-only">Refazer</span>
+                </Botao>
+              </div>
+              <span aria-hidden className="mx-1 hidden h-8 w-0.5 bg-tinta-suave/50 lg:block" />
+            </>
+          )}
           {mestre && !atual.combate && (
             <>
               <Botao
@@ -780,46 +906,20 @@ export function TelaSala() {
               )}
             </>
           )}
-          {mestre && (
-            <>
-              <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('rede')}>
-                Compartilhar
-              </Botao>
-              <Botao tamanho="pequeno" disabled={!ultimoPasso} title="Atalho: Ctrl+Z" onClick={desfazer}>
-                {ultimoPasso ? `Desfazer: ${ultimoPasso.rotulo}` : 'Desfazer'}
-              </Botao>
-              <Botao
-                tamanho="pequeno"
-                aria-pressed={cenarioAberto}
-                onClick={() => {
-                  setCenarioAberto((a) => !a)
-                  setDestaqueAberto(false)
-                }}
-              >
-                Cenário
-              </Botao>
-              <Botao
-                tamanho="pequeno"
-                aria-pressed={destaqueAberto}
-                title="Marca casas para a mesa toda ver"
-                onClick={() => {
-                  setDestaqueAberto((a) => !a)
-                  setCenarioAberto(false)
-                }}
-              >
-                Destaque
-              </Botao>
-              <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('notas')}>
-                Notas
-              </Botao>
-            </>
-          )}
-          <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('mesa')}>
-            Mesa ({jogadores.length + 1})
-          </Botao>
           {podeColocar && (
             <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('pecas')}>
               + Peça
+            </Botao>
+          )}
+          <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('mesa')}>
+            {presencaDaMesa && sala
+              ? `Mesa (${[...(sala.mestre ? [sala.mestre] : []), ...jogadores.filter((j) => j.pubkey !== sala.mestre).map((j) => j.pubkey)].filter((pk) => situacaoDe(pk, { eu: usuario.pubkey, mestre: sala.mestre, presenca: presencaDaMesa }).online).length} de ${jogadores.length + 1} online)`
+              : `Mesa (${jogadores.length + 1})`}
+          </Botao>
+          {mestre && (
+            <Botao tamanho="pequeno" className="gap-1.5" aria-haspopup="dialog" onClick={() => setGaveta('rede')}>
+              <IconeCompartilhar />
+              Compartilhar
             </Botao>
           )}
           {remoto && (
@@ -836,6 +936,17 @@ export function TelaSala() {
                 ⋯
               </summary>
               <div className="absolute right-0 z-10 mt-2 flex w-56 flex-col gap-2 rounded-cordel border-2 border-borda bg-superficie p-2 shadow-carimbo-pequeno">
+                <Botao
+                  tamanho="pequeno"
+                  className="w-full"
+                  aria-haspopup="dialog"
+                  onClick={() => {
+                    fecharMenu()
+                    setGaveta('notas')
+                  }}
+                >
+                  Notas do mestre
+                </Botao>
                 <Botao
                   tamanho="pequeno"
                   className="w-full"
@@ -884,6 +995,20 @@ export function TelaSala() {
 
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <section aria-label="Tabuleiro" className="relative flex min-h-0 min-w-0 flex-col gap-2">
+          {mestre && !cenarioAberto && !destaqueAberto && atual.pecas.length === 0 && (atual.cenario?.length ?? 0) === 0 && (
+            <div className="absolute top-14 left-1/2 z-10 w-[min(22rem,calc(100%-2rem))] -translate-x-1/2 space-y-3 rounded-cordel border-2 border-borda bg-superficie p-4 shadow-carimbo">
+              <p className="font-display text-xl">Mapa em branco</p>
+              <p className="text-sm text-tinta-suave">Comece com um mapa pronto ou pinte o seu do zero. Você pode trocar a qualquer hora.</p>
+              <div className="flex flex-wrap gap-2">
+                <Botao variante="principal" tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('modelos')}>
+                  Escolher um modelo
+                </Botao>
+                <Botao tamanho="pequeno" onClick={() => escolherFerramenta('cenario')}>
+                  Pintar do zero
+                </Botao>
+              </div>
+            </div>
+          )}
           <Grade
             sala={visao}
             selecionada={selecionada}
@@ -927,6 +1052,11 @@ export function TelaSala() {
               aoConcluir={() => setCenarioAberto(false)}
               aoModelos={() => setGaveta('modelos')}
               temCenario={(atual.cenario?.length ?? 0) > 0}
+              escondido={pintarEscondido}
+              aoEscondido={setPintarEscondido}
+              escondidas={(atual.cenario ?? []).filter((c) => c.oculta).length}
+              total={atual.cenario?.length ?? 0}
+              aoOcultarTudo={(oculta) => aoOcultarCenario(oculta)}
             />
           )}
           {mestre && destaqueAberto && (
@@ -967,6 +1097,18 @@ export function TelaSala() {
               aoEditar={() => setGaveta('minha')}
               aoColocar={() => aoAdicionar(usuario.nome, 'personagem', 1)}
               aoEscolher={() => setGaveta('pecas')}
+            />
+          )}
+          {mestre && !roteiroDispensado.includes(atual.id) && !roteiroCompleto(passosDoRoteiro(atual, jogadores.length, log.some((r) => r.iniciativa))) && (
+            <RoteiroDoMestre
+              passos={passosDoRoteiro(atual, jogadores.length, log.some((r) => r.iniciativa))}
+              aoDispensar={() => setRoteiroDispensado((d) => [...d.filter((x) => x !== atual.id), atual.id])}
+              acoes={{
+                mapa: { rotulo: 'Modelos', aoClicar: () => setGaveta('modelos') },
+                monstros: { rotulo: '+ Peça', aoClicar: () => setGaveta('pecas') },
+                turma: { rotulo: 'Compartilhar', aoClicar: () => setGaveta('rede') },
+                combate: { rotulo: 'Iniciar', aoClicar: aoIniciarCombate, desabilitado: poucas, dica: poucas ? 'Coloque pelo menos duas peças para começar uma briga.' : undefined },
+              }}
             />
           )}
           {mestre && (
@@ -1014,10 +1156,17 @@ export function TelaSala() {
           sala={atual}
           mestre={mestre}
           terrenoAtual={terrenoEm(atual, menuCasa.casa.coluna, menuCasa.casa.linha)}
+          terrenoOculto={atual.cenario?.find((c) => c.coluna === menuCasa.casa.coluna && c.linha === menuCasa.casa.linha)?.oculta === true}
+          terrenoDisfarce={atual.cenario?.find((c) => c.coluna === menuCasa.casa.coluna && c.linha === menuCasa.casa.linha)?.disfarce}
+          aoDisfarcar={aoDisfarcar}
           bloqueada={casaBloqueada(atual, menuCasa.casa.coluna, menuCasa.casa.linha)}
           aoFechar={() => setMenuCasa(null)}
           aoAdicionar={aoAdicionar}
           aoPintar={aoPintarCasa}
+          aoOcultar={(casa, oculta, so) => {
+            const t = terrenoEm(atual, casa.coluna, casa.linha)
+            aoOcultarCenario(oculta, (c) => (so === 'casa' ? c.coluna === casa.coluna && c.linha === casa.linha : c.terreno === t), so === 'casa' ? `${t ? nomeTerreno(t).toLowerCase() : 'terreno'} em ${nomeCasa(casa.coluna, casa.linha)}` : `todos (${t ? nomeTerreno(t).toLowerCase() : 'terreno'})`)
+          }}
         />
       )}
 
@@ -1062,6 +1211,7 @@ export function TelaSala() {
               eu={eu}
               mestreVendo={mestre}
               destino={alvo && nomeCasa(alvo.coluna, alvo.linha)}
+              presenca={presencaDaMesa}
               aoColocar={colocarJogador}
               aoSelecionar={(id) => {
                 setSelecionada(id)

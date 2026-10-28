@@ -38,8 +38,10 @@ export function BotaoTema() {
   }
 
   return (
-    <Botao tamanho="pequeno" className="whitespace-nowrap" onClick={alternar}>
-      Tema {outro}
+    <Botao tamanho="pequeno" className="whitespace-nowrap max-lg:px-3" onClick={alternar}>
+      {/* Abaixo de 1024 px o botão encurta para caber ao lado do nome e do nível; o leitor de tela ainda ouve "Tema escuro". */}
+      <span className="max-lg:sr-only">Tema </span>
+      {outro}
     </Botao>
   )
 }

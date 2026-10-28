@@ -13,6 +13,8 @@ export const CHAVE_REDE_MESTRE = 'rpg:rede:mestre'
 export const CHAVE_REDE_MODO = 'rpg:rede:via'
 /** Quem joga em rede: a sala em que entrou. */
 export const CHAVE_CONEXAO = 'rpg:rede:jogador'
+/** Hash do convite (#/entrar/…) guardado enquanto a pessoa cria o perfil; vazio = nenhum. */
+export const CHAVE_CONVITE_PENDENTE = 'rpg:convite:pendente'
 /** A última foto que o servidor mandou a quem joga: sala, log e jogadores. */
 export const CHAVES_SALA_REMOTA = ['rpg:sala:remota', 'rpg:sala:log:remoto', 'rpg:sala:jogadores:remoto'] as const
 

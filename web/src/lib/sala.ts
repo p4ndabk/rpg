@@ -90,6 +90,10 @@ export type Terreno = (typeof TERRENOS)[number]['valor']
 
 export interface CasaDeCenario extends Casa {
   terreno: Terreno
+  /** Escondido de quem joga (uma armadilha, uma porta secreta). O mestre vê, com uma marca. */
+  oculta?: boolean
+  /** Só com `oculta`: em vez de sumir, quem joga vê este terreno no lugar (uma porta secreta que parece parede). */
+  disfarce?: Terreno
 }
 
 export const ehTerreno = (v: unknown): v is Terreno => TERRENOS.some((t) => t.valor === v)
@@ -127,7 +131,12 @@ export interface Peca extends Casa {
   descricao?: string
   /** A CD do personagem (por exemplo a CD de magia ou de resistência). */
   cd?: number
+  /** A classe escolhida, que decide o emblema. Sem ela o emblema vem do nome (Mago, Ladina…). Só personagem. */
+  classe?: string
 }
+
+/** As classes que têm emblema próprio (as mesmas dos atalhos de herói). */
+export const CLASSES: readonly string[] = ATALHOS.personagem
 
 export const DESCRICAO_MAX = 600
 export const CD_FICHA_MIN = 1
@@ -139,6 +148,8 @@ export interface CamposFicha {
   /** Null tira a CD da ficha. */
   cd: number | null
   bonusIniciativa: number
+  /** Uma das `CLASSES`; vazio volta ao emblema pelo nome. Ausente deixa a classe como está. */
+  classe?: string
 }
 
 export const BONUS_INICIATIVA_MIN = -10
@@ -261,21 +272,63 @@ export function casaBloqueada(sala: Sala, coluna: number, linha: number): boolea
   return t !== undefined && bloqueia(t)
 }
 
-/** Pinta as casas com o terreno (ou apaga, com null). Terreno que barra não cobre casa com peça em cima. */
-export function pintar(sala: Sala, casas: Casa[], terreno: Terreno | null): Sala {
+/**
+ * Pinta as casas com o terreno (ou apaga, com null). Terreno que barra não cobre casa com peça em cima. Com `oculta`,
+ * o que for pintado fica escondido de quem joga.
+ */
+export function pintar(sala: Sala, casas: Casa[], terreno: Terreno | null, oculta = false): Sala {
   const alvo = new Set(casas.filter((c) => dentro(sala, c)).map((c) => `${c.coluna},${c.linha}`))
   const sem = (sala.cenario ?? []).filter((c) => !alvo.has(`${c.coluna},${c.linha}`))
   if (terreno === null) return comCenario(sala, sem)
   const novas: CasaDeCenario[] = [...alvo]
     .map((k) => {
       const [coluna, linha] = k.split(',').map(Number) as [number, number]
-      return { coluna, linha, terreno }
+      return { coluna, linha, terreno, ...(oculta ? { oculta: true as const } : {}) }
     })
     .filter((c) => !(bloqueia(terreno) && pecaEm(sala, c.coluna, c.linha)))
   // Quem ficou de fora por ter peça em cima mantém o terreno antigo.
   const mantidas = (sala.cenario ?? []).filter((c) => alvo.has(`${c.coluna},${c.linha}`) && !novas.some((n) => n.coluna === c.coluna && n.linha === c.linha))
   return comCenario(sala, [...sem, ...mantidas, ...novas])
 }
+
+/**
+ * Esconde (ou revela) casas do cenário de quem joga. Sem `filtro`, vale para o cenário todo; com ele, só para as
+ * casas que passarem (uma casa, todos os buracos…). Sem mudança, devolve a mesma sala.
+ */
+export function ocultarCenario(sala: Sala, oculta: boolean, filtro: (c: CasaDeCenario) => boolean = () => true): Sala {
+  if (!sala.cenario) return sala
+  let mudou = false
+  const cenario = sala.cenario.map((c) => {
+    if (!filtro(c) || (c.oculta === true) === oculta) return c
+    mudou = true
+    // Revelar tira também o disfarce; esconder de novo uma casa disfarçada não o perde.
+    const { oculta: _antiga, disfarce: _disfarce, ...resto } = c
+    return oculta ? { ...resto, oculta: true as const, ...(c.disfarce ? { disfarce: c.disfarce } : {}) } : resto
+  })
+  return mudou ? { ...sala, cenario } : sala
+}
+
+/** Esconde a casa de cenário se estava à vista, ou a revela se estava escondida. */
+export function alternarOcultoCenario(sala: Sala, casa: Casa): Sala {
+  const c = sala.cenario?.find((x) => x.coluna === casa.coluna && x.linha === casa.linha)
+  return c ? ocultarCenario(sala, !c.oculta, (x) => x === c) : sala
+}
+
+/**
+ * Disfarça uma casa do cenário: quem joga passa a ver `como` no lugar do terreno real (a porta secreta que parece
+ * parede). A casa fica escondida; com `null` o disfarce sai e ela só some. Sem terreno na casa, nada muda.
+ */
+export function disfarcarCenario(sala: Sala, casa: Casa, como: Terreno | null): Sala {
+  const c = sala.cenario?.find((x) => x.coluna === casa.coluna && x.linha === casa.linha)
+  if (!c || (como === null ? c.disfarce === undefined : c.disfarce === como && c.oculta === true)) return sala
+  const { disfarce: _antigo, ...resto } = c
+  const nova: CasaDeCenario = como === null ? { ...resto, oculta: true } : { ...resto, oculta: true, disfarce: como }
+  return { ...sala, cenario: sala.cenario!.map((x) => (x === c ? nova : x)) }
+}
+
+/** O cenário que quem joga enxerga: sem o que está escondido, e o que tem disfarce aparece como o disfarce. */
+export const cenarioVisivel = (cenario: CasaDeCenario[]): CasaDeCenario[] =>
+  cenario.flatMap((c) => (!c.oculta ? [c] : c.disfarce ? [{ coluna: c.coluna, linha: c.linha, terreno: c.disfarce }] : []))
 
 export type Forma = 'pincel' | 'linha' | 'retangulo' | 'contorno'
 
@@ -396,6 +449,16 @@ export function adicionarPeca(
   const vida = Math.min(PV_MAX, Math.max(PV_MIN, Math.round(pvMax ?? pvDaPeca(sala, nome, tipo))))
   const peca: Peca = { id, nome: nomeUnico(sala, nome), tipo, coluna: destino.coluna, linha: destino.linha, pv: vida, pvMax: vida, ...(dono ? { dono } : {}) }
   return { ...sala, pecas: [...sala.pecas, peca] }
+}
+
+export type MotivoDoMovimento = 'fora' | 'ocupada' | 'bloqueada'
+
+/** Por que a peça não pode ir para a casa (null = pode). É o que `moverPeca` checa, dito em palavras. */
+export function motivoDoMovimento(sala: Sala, id: string, coluna: number, linha: number): MotivoDoMovimento | null {
+  if (!dentro(sala, { coluna, linha })) return 'fora'
+  const ocupante = pecaEm(sala, coluna, linha)
+  if (ocupante && ocupante.id !== id) return 'ocupada'
+  return casaBloqueada(sala, coluna, linha) ? 'bloqueada' : null
 }
 
 /** Fora do grid ou em casa ocupada por outra peça, nada muda. */
@@ -536,8 +599,9 @@ export function editarFicha(sala: Sala, id: string, campos: CamposFicha): Sala {
     ...sala,
     pecas: sala.pecas.map((p) => {
       if (p.id !== id) return p
-      const { descricao: _d, cd: _c, bonusIniciativa: _b, ...resto } = p
-      return { ...resto, ...(descricao ? { descricao } : {}), ...(cd !== null ? { cd } : {}), ...(bonus !== 0 ? { bonusIniciativa: bonus } : {}) }
+      const { descricao: _d, cd: _c, bonusIniciativa: _b, classe: _k, ...resto } = p
+      const classe = p.tipo !== 'personagem' ? undefined : campos.classe === undefined ? p.classe : CLASSES.includes(campos.classe) ? campos.classe : undefined
+      return { ...resto, ...(descricao ? { descricao } : {}), ...(cd !== null ? { cd } : {}), ...(bonus !== 0 ? { bonusIniciativa: bonus } : {}), ...(classe ? { classe } : {}) }
     }),
   }
 }
@@ -624,7 +688,7 @@ export function lerSala(v: unknown): Sala | null {
     const chave = `${c.coluna},${c.linha}`
     if (vistas.has(chave)) continue
     vistas.add(chave)
-    cenario.push({ coluna: c.coluna, linha: c.linha, terreno: c.terreno })
+    cenario.push({ coluna: c.coluna, linha: c.linha, terreno: c.terreno, ...(c.oculta === true ? { oculta: true as const, ...(ehTerreno(c.disfarce) ? { disfarce: c.disfarce } : {}) } : {}) })
   }
   if (cenario.length) sala.cenario = cenario
   const destaques: Destaque[] = []
@@ -663,6 +727,7 @@ export function lerSala(v: unknown): Sala | null {
       ...(typeof p.descricao === 'string' && p.descricao.trim() ? { descricao: p.descricao.trim().slice(0, DESCRICAO_MAX) } : {}),
       ...(inteiroEntre(p.cd, CD_FICHA_MIN, CD_FICHA_MAX) ? { cd: p.cd } : {}),
       ...(inteiroEntre(p.bonusIniciativa, BONUS_INICIATIVA_MIN, BONUS_INICIATIVA_MAX) && p.bonusIniciativa !== 0 ? { bonusIniciativa: p.bonusIniciativa } : {}),
+      ...(p.tipo === 'personagem' && typeof p.classe === 'string' && CLASSES.includes(p.classe) ? { classe: p.classe } : {}),
       ...(condicoes.length ? { condicoes } : {}),
     })
   }

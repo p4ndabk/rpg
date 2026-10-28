@@ -154,7 +154,7 @@ export function PainelPeca({
       ) : (
         <p className="text-tinta-suave">
           Selecione uma peça (no tabuleiro ou na faixa de iniciativa) para dar dano, curar, esconder ou pôr condições.
-          <span className="mt-1 block text-sm">Atalhos: N próxima vez · D dano · H esconder · Ctrl+Z desfazer · Esc soltar</span>
+          <span className="mt-1 block text-sm">Atalhos: N próxima vez · D dano · H esconder · M mover · C cenário · E destaque · Ctrl+Z desfaz · Ctrl+Shift+Z refaz · Esc solta</span>
         </p>
       )}
     </section>

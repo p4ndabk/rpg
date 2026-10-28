@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
+import type { Vistos } from '../presenca'
 import type { MensagemCliente, MensagemServidor } from './protocolo'
 
 export type Fase = 'desligada' | 'conectando' | 'ok' | 'erro'
 
+/** Quem está na mesa agora, só nos relays (no servidor a conexão aberta já diz). */
+export interface Presenca {
+  /** Hora (segundos) da última foto do mestre; null = ainda não chegou nenhuma. */
+  mestreEm: number | null
+  vistos: Vistos
+}
+
 export interface Conexao {
   fase: Fase
+  presenca?: Presenca
+  /** Só nos relays: sobe a cada jogada sua que o mestre recusou (a tela já voltou ao real). */
+  recusadas?: { n: number; acao: string }
   /** Motivo da última recusa do servidor, se houve. */
   recusa: Extract<MensagemServidor, { t: 'recusado' }>['motivo'] | null
   enviar: (msg: MensagemCliente) => void

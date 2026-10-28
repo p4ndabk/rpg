@@ -12,11 +12,19 @@ interface MenuDaCasaProps {
   /** O mestre chama qualquer peça, escolhe a vida, quantas e pinta o terreno; quem joga chama só o seu herói. */
   mestre: boolean
   terrenoAtual?: Terreno
+  /** O terreno desta casa está escondido de quem joga. */
+  terrenoOculto?: boolean
+  /** O terreno que quem joga vê no lugar do real (porta secreta que parece parede), se houver. */
+  terrenoDisfarce?: Terreno
   /** Parede, árvore ou pedra: ninguém entra, então não há peça para colocar. */
   bloqueada: boolean
   aoFechar: () => void
   aoAdicionar: (nome: string, tipo: TipoPeca, quantidade: number, pv: number | undefined, casa: Casa) => void
   aoPintar: (terreno: Terreno | null, casa: Casa) => void
+  /** Esconde ou revela o terreno desta casa (`so: 'casa'`) ou de todas as casas com o mesmo terreno (`so: 'tipo'`). */
+  aoOcultar: (casa: Casa, oculta: boolean, so: 'casa' | 'tipo') => void
+  /** Faz quem joga ver `como` no lugar do terreno escondido desta casa (null tira o disfarce). */
+  aoDisfarcar: (casa: Casa, como: Terreno | null) => void
 }
 
 const campo = 'min-h-11 w-20 rounded-cordel border-2 border-borda bg-fundo px-2 text-center font-display text-xl text-tinta'
@@ -25,7 +33,7 @@ const campo = 'min-h-11 w-20 rounded-cordel border-2 border-borda bg-fundo px-2 
  * Menu do botão direito numa casa vazia: chama uma peça direto naquela casa (herói, monstro ou "Outro…" com nome)
  * e, para o mestre, escolhe a vida, a quantidade e o terreno da casa.
  */
-export function MenuDaCasa({ casa, ponto, sala, mestre, terrenoAtual, bloqueada, aoFechar, aoAdicionar, aoPintar }: MenuDaCasaProps) {
+export function MenuDaCasa({ casa, ponto, sala, mestre, terrenoAtual, terrenoOculto = false, terrenoDisfarce, bloqueada, aoFechar, aoAdicionar, aoPintar, aoOcultar, aoDisfarcar }: MenuDaCasaProps) {
   const { raiz, lugar } = usarMenuFlutuante(ponto, aoFechar)
   const [vidaTxt, setVidaTxt] = useState('')
   const [quantosTxt, setQuantosTxt] = useState('1')
@@ -66,6 +74,46 @@ export function MenuDaCasa({ casa, ponto, sala, mestre, terrenoAtual, bloqueada,
           ×
         </button>
       </div>
+
+      {mestre && terrenoAtual && (
+        <div role="group" aria-label={`${nomeTerreno(terrenoAtual)} em ${nomeCasa(casa.coluna, casa.linha)}`} className="space-y-2 rounded-cordel border-2 border-borda bg-fundo p-2">
+          <p className="text-sm font-bold">
+            {nomeTerreno(terrenoAtual)}
+            {terrenoOculto ? (terrenoDisfarce ? ` · escondido: os jogadores veem ${nomeTerreno(terrenoDisfarce).toLowerCase()}` : ' · escondido dos jogadores') : ' · à vista de todos'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Botao
+              tamanho="pequeno"
+              onClick={() => {
+                aoOcultar(casa, !terrenoOculto, 'casa')
+                aoFechar()
+              }}
+            >
+              {terrenoOculto ? 'Revelar esta' : 'Esconder esta'}
+            </Botao>
+            <Botao
+              tamanho="pequeno"
+              onClick={() => {
+                aoOcultar(casa, !terrenoOculto, 'tipo')
+                aoFechar()
+              }}
+            >
+              {terrenoOculto ? 'Revelar todos' : 'Esconder todos'} ({nomeTerreno(terrenoAtual).toLowerCase()})
+            </Botao>
+            {terrenoOculto && (
+              <Botao
+                tamanho="pequeno"
+                onClick={() => {
+                  aoDisfarcar(casa, terrenoDisfarce ? null : 'parede')
+                  aoFechar()
+                }}
+              >
+                {terrenoDisfarce ? 'Tirar o disfarce' : 'Mostrar como parede'}
+              </Botao>
+            )}
+          </div>
+        </div>
+      )}
 
       {bloqueada && <p className="text-sm text-tinta-suave">Esta casa está bloqueada ({terrenoAtual ? nomeTerreno(terrenoAtual).toLowerCase() : 'terreno'}): ninguém entra nela.</p>}
 

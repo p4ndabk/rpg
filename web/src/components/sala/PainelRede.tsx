@@ -3,6 +3,8 @@ import type { Jogador } from '../../lib/rede/protocolo'
 import type { Fase } from '../../lib/rede/usarServidor'
 import { npubCurta } from '../../lib/usuario'
 import { ehLocal } from '../../lib/nostr/convite'
+import { lerListaDeRelays } from '../../lib/nostr/relays'
+import { testarRelays, textoDoResultado, type ResultadoRelay } from '../../lib/nostr/testarRelays'
 import { Botao } from '../ui/Botao'
 import { Opcao } from '../ui/Opcao'
 
@@ -48,6 +50,17 @@ export function PainelRede({ modo, aoMudarModo, relays, aoMudarRelays, baseConvi
   const [listaRelays, setListaRelays] = useState(relays.join('\n'))
   const nostr = modo === 'nostr'
   const [base, setBase] = useState(baseConvite)
+  // Teste dos relays: null = não testou; [] com `testando` = em andamento.
+  const [testes, setTestes] = useState<ResultadoRelay[] | null>(null)
+  const [testando, setTestando] = useState(false)
+  async function testar() {
+    // Testa o que está na caixa (mesmo antes de salvar), senão a lista em uso.
+    const lista = lerListaDeRelays(listaRelays)
+    setTestando(true)
+    setTestes(null)
+    setTestes(await testarRelays(lista.length > 0 ? lista : relays))
+    setTestando(false)
+  }
   return (
     <div className="space-y-6">
       <label className="flex min-h-11 items-center gap-3 font-bold">
@@ -97,7 +110,24 @@ export function PainelRede({ modo, aoMudarModo, relays, aoMudarRelays, baseConvi
             <Botao type="submit" tamanho="pequeno" disabled={listaRelays.trim().split(/\s+/).join(' ') === relays.join(' ')}>
               Usar estes relays
             </Botao>
+            <Botao tamanho="pequeno" className="ml-2" disabled={testando} aria-describedby="resultado-relays" onClick={testar}>
+              {testando ? 'Testando…' : 'Testar relays'}
+            </Botao>
           </form>
+          <div id="resultado-relays" role="status" aria-live="polite">
+            {testes && (
+              <ul className="space-y-1 text-sm">
+                {testes.map((t) => (
+                  <li key={t.url} className="flex flex-wrap items-center gap-2">
+                    {/* Quadrado cheio = respondeu; vazio = não. A frase diz o resto. */}
+                    <span aria-hidden className={`size-2.5 border-2 border-current ${t.ms !== null ? 'bg-current text-verde' : 'text-vermelho'}`} />
+                    <code className="break-all">{t.url}</code>
+                    <span className={t.ms !== null ? 'font-bold text-verde' : 'font-bold text-vermelho'}>{textoDoResultado(t)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <p className="text-xs text-tinta-suave">
             Sem servidor: o seu navegador faz o papel dele. <strong>Deixe esta aba aberta durante a sessão</strong>; se você fechar, a mesa para até você voltar. Os relays guardam a sala por poucos dias.
           </p>

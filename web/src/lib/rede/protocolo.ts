@@ -1,5 +1,6 @@
 import { lerHistorico, noHistorico, noMomento, type Rolagem } from '../dados'
-import { adicionarPeca, daVez, editarFicha, lerSala, moverPeca, passarVez, pecasVisiveis, removerPeca, type Casa, type Sala } from '../sala'
+import { lerVistos, type Vistos } from '../presenca'
+import { adicionarPeca, cenarioVisivel, daVez, editarFicha, lerSala, moverPeca, passarVez, pecasVisiveis, removerPeca, type Casa, type Sala } from '../sala'
 
 // Sala em rede. O SERVIDOR (Node) guarda a sala de verdade e fala com os navegadores por WebSocket. O mestre manda
 // o estado completo; quem joga manda AÇÕES ("mover", "rolar"…) e o servidor as confere (`aplicarAcao`) e aplica.
@@ -24,6 +25,8 @@ export interface Foto {
   sala: Sala
   log: Rolagem[]
   jogadores: Jogador[]
+  /** Quando cada pessoa deu sinal pela última vez (só nos relays; ver `presenca.ts`). */
+  vistos?: Vistos
 }
 
 /** O que a mesa pode ver da sala: sem peças escondidas, sem a vida dos monstros e sem rolagens secretas. */
@@ -51,8 +54,10 @@ export function visaoPublica({ sala, log, jogadores }: Estado): Foto {
     }
   }
   // A vida base dos monstros é do mestre: não vai na foto de quem joga.
-  const { pvBase: _pvBase, ...publica } = sala
-  return { v: 1, sala: { ...publica, pecas: visiveis, combate }, log: log.filter((r) => !r.secreta), jogadores }
+  const { pvBase: _pvBase, cenario: _cenario, ...publica } = sala
+  // O cenário escondido (armadilha, porta secreta) também não vai na foto.
+  const aVista = cenarioVisivel(sala.cenario ?? [])
+  return { v: 1, sala: { ...publica, pecas: visiveis, combate, ...(aVista.length ? { cenario: aVista } : {}) }, log: log.filter((r) => !r.secreta), jogadores }
 }
 
 const ehObjeto = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
@@ -75,7 +80,8 @@ export function lerFoto(texto: string): Foto | null {
   if (!ehObjeto(v) || v.v !== 1) return null
   const sala = lerSala(v.sala)
   if (!sala) return null
-  return { v: 1, sala, log: lerHistorico(v.log) ?? [], jogadores: lerJogadores(v.jogadores) }
+  const vistos = lerVistos(v.vistos)
+  return { v: 1, sala, log: lerHistorico(v.log) ?? [], jogadores: lerJogadores(v.jogadores), ...(Object.keys(vistos).length ? { vistos } : {}) }
 }
 
 // ---- Ações de quem joga
@@ -88,7 +94,7 @@ export type Acao =
   | { tipo: 'passar' }
   | { tipo: 'rolar'; rolagem: Rolagem }
   /** Quem joga edita a ficha do próprio personagem. */
-  | { tipo: 'ficha'; peca: string; descricao: string; cd: number | null; bonusIniciativa: number }
+  | { tipo: 'ficha'; peca: string; descricao: string; cd: number | null; bonusIniciativa: number; classe?: string }
 
 export function lerAcao(texto: string): Acao | null {
   let v: unknown
@@ -117,7 +123,7 @@ export function lerAcao(texto: string): Acao | null {
       return { tipo: 'passar' }
     case 'ficha':
       return typeof v.peca === 'string' && typeof v.descricao === 'string' && (v.cd === null || Number.isFinite(v.cd)) && Number.isFinite(v.bonusIniciativa)
-        ? { tipo: 'ficha', peca: v.peca, descricao: v.descricao, cd: v.cd as number | null, bonusIniciativa: v.bonusIniciativa as number }
+        ? { tipo: 'ficha', peca: v.peca, descricao: v.descricao, cd: v.cd as number | null, bonusIniciativa: v.bonusIniciativa as number, ...(typeof v.classe === 'string' ? { classe: v.classe.slice(0, 20) } : {}) }
         : null
     case 'rolar': {
       const r = lerHistorico([v.rolagem])?.[0]
@@ -214,6 +220,8 @@ export type MensagemCliente =
   /** O mestre troca o estado. `base` é a versão que ele viu por último; se o servidor já passou dela, há conflito. */
   | { t: 'estado'; base: number; estado: Estado }
   | { t: 'acao'; acao: Acao }
+  /** "Estou aqui": só os relays usam, a cada minuto (no servidor a conexão aberta já diz). */
+  | { t: 'presenca' }
   /** Pede as salas em que `pubkey` é mestre ou jogador. */
   | { t: 'listar'; pubkey: string }
 
@@ -227,6 +235,8 @@ export type MensagemServidor =
   | { t: 'ok'; versao: number }
   | { t: 'conflito'; versao: number; estado: Estado }
   | { t: 'salas'; salas: ResumoSala[] }
+  /** Só do navegador do mestre para ele mesmo, nos relays: quando cada pessoa deu sinal. */
+  | { t: 'presenca'; vistos: Vistos }
   | { t: 'recusado'; motivo: 'sala-nao-existe' | 'sala-de-outro-mestre' | 'invalido' | 'sem-permissao' }
 
 /** Leitura defensiva de um Estado vindo da rede ou do arquivo do servidor. */
@@ -260,6 +270,8 @@ export function lerMensagemCliente(texto: string): MensagemCliente | null {
     }
     case 'listar':
       return ehPubkey(v.pubkey) ? { t: 'listar', pubkey: v.pubkey } : null
+    case 'presenca':
+      return { t: 'presenca' }
     case 'acao': {
       const acao = lerAcao(JSON.stringify({ v: 1, ...(ehObjeto(v.acao) ? v.acao : {}) }))
       return acao ? { t: 'acao', acao } : null

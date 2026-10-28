@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { somLigado } from '../../lib/preferencias'
 import { daVez, vezChegouParaMim, type Sala } from '../../lib/sala'
 import { Ficha } from './Ficha'
 
 const DURACAO_MS = 4500
 
 /** Dois toques curtos e suaves. Pode ser barrado pelo navegador se a pessoa ainda não tocou na página; aí fica só o aviso visual. */
-function tocar() {
+export function tocarAvisoDeVez() {
   try {
     const ctx = new AudioContext()
     const agora = ctx.currentTime
@@ -47,7 +48,7 @@ export function AvisoDaVez({ sala, pubkey }: AvisoDaVezProps) {
   useEffect(() => {
     if (vezChegouParaMim(anterior.current, vez, pubkey)) {
       setMostrando(true)
-      tocar()
+      if (somLigado()) tocarAvisoDeVez()
     } else if (!minhaVez) {
       setMostrando(false)
     }

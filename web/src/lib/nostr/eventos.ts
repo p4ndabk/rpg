@@ -54,7 +54,19 @@ export interface Quem {
   nome: string
 }
 
-export function montarFoto(salaId: string, versao: number, foto: Foto, criadoEm: number): EventTemplate {
+/** Uma jogada de `pubkey` que o mestre recusou; vai como etiqueta na foto seguinte, para a tela de quem jogou voltar ao real. */
+export interface Recusa {
+  pubkey: string
+  acao: string
+}
+
+/** Lê a etiqueta de recusa de uma foto, se houver. */
+export function lerRecusa(e: Pick<Event, 'tags'>): Recusa | null {
+  const t = e.tags.find((x) => x[0] === 'recusou')
+  return t && typeof t[1] === 'string' && /^[0-9a-f]{64}$/.test(t[1]) ? { pubkey: t[1], acao: (t[2] ?? '').slice(0, 20) } : null
+}
+
+export function montarFoto(salaId: string, versao: number, foto: Foto, criadoEm: number, recusou?: Recusa): EventTemplate {
   let log = foto.log
   let content = JSON.stringify({ v: 1, versao, foto: paraOEvento(foto) })
   // O log vem do mais novo para o mais antigo: corta o fim até caber.
@@ -65,7 +77,7 @@ export function montarFoto(salaId: string, versao: number, foto: Foto, criadoEm:
   return {
     kind: KIND_FOTO,
     created_at: criadoEm,
-    tags: [['d', tagDaSala(salaId)], ['expiration', String(criadoEm + VALIDADE_FOTO_S)]],
+    tags: [['d', tagDaSala(salaId)], ['expiration', String(criadoEm + VALIDADE_FOTO_S)], ...(recusou ? [['recusou', recusou.pubkey, recusou.acao]] : [])],
     content,
   }
 }
@@ -96,8 +108,8 @@ export function montarPedido(salaId: string, quem: Quem, mensagem: MensagemClien
   }
 }
 
-/** Só pedidos de quem joga: entrar ou agir. O resto (abrir, estado, listar) é do mestre e nunca vem de fora. */
-export function lerPedido(e: Pick<Event, 'content'>): { quem: Quem; mensagem: Extract<MensagemCliente, { t: 'entrar' | 'acao' }> } | null {
+/** Só pedidos de quem joga: entrar, agir ou dar sinal de presença. O resto (abrir, estado, listar) é do mestre e nunca vem de fora. */
+export function lerPedido(e: Pick<Event, 'content'>): { quem: Quem; mensagem: Extract<MensagemCliente, { t: 'entrar' | 'acao' | 'presenca' }> } | null {
   let v: unknown
   try {
     v = JSON.parse(e.content)
@@ -108,6 +120,6 @@ export function lerPedido(e: Pick<Event, 'content'>): { quem: Quem; mensagem: Ex
   const { quem, msg } = v as { quem?: { pubkey?: unknown; nome?: unknown }; msg?: unknown }
   if (!quem || typeof quem.pubkey !== 'string' || !/^[0-9a-f]{64}$/.test(quem.pubkey)) return null
   const mensagem = lerMensagemCliente(JSON.stringify(msg))
-  if (!mensagem || (mensagem.t !== 'entrar' && mensagem.t !== 'acao')) return null
+  if (!mensagem || (mensagem.t !== 'entrar' && mensagem.t !== 'acao' && mensagem.t !== 'presenca')) return null
   return { quem: { pubkey: quem.pubkey, nome: typeof quem.nome === 'string' ? quem.nome.slice(0, 40) : 'Sem nome' }, mensagem }
 }

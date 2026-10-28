@@ -4,6 +4,7 @@ import { adicionarAmigo, CHAVE_AMIGOS, ehAmigo, lerAmigos } from '../../lib/amig
 import type { Jogador } from '../../lib/rede/protocolo'
 import { ATALHOS, nomeCasa, type Peca } from '../../lib/sala'
 import { linkPara } from '../../lib/rota'
+import { situacaoDe, type Presenca } from '../../lib/presenca'
 import { npubCurta } from '../../lib/usuario'
 import { Botao } from '../ui/Botao'
 
@@ -22,6 +23,8 @@ interface PainelMesaProps {
   /** Coloca o personagem do jogador no mapa; `classe` vazia usa o nome dele. */
   aoColocar?: (jogador: Jogador, classe: string) => void
   aoSelecionar?: (pecaId: string) => void
+  /** Só nos relays: quem está online. Sem isto o painel não fala de presença. */
+  presenca?: Presenca
 }
 
 interface Linha {
@@ -32,7 +35,7 @@ interface Linha {
 }
 
 /** Quem está na mesa: o mestre e quem já entrou, com o personagem de cada um e o botão de adicionar aos amigos. */
-export function PainelMesa({ mestre, jogadores, pecas, eu, mestreVendo = false, destino = null, aoColocar, aoSelecionar }: PainelMesaProps) {
+export function PainelMesa({ mestre, jogadores, pecas, eu, mestreVendo = false, destino = null, aoColocar, aoSelecionar, presenca }: PainelMesaProps) {
   const [classe, setClasse] = useState('')
   const [amigos, setAmigos] = usarArmazenado(CHAVE_AMIGOS, [], lerAmigos)
   const naMesa = (pubkey: string) => pecas.filter((p) => p.dono === pubkey)
@@ -46,7 +49,7 @@ export function PainelMesa({ mestre, jogadores, pecas, eu, mestreVendo = false, 
   return (
     <div className="space-y-4">
       <p className="text-sm text-tinta-suave">
-        Quem já entrou nesta sala. A lista mostra quem entrou, não quem está com a aba aberta agora.
+        {presenca ? 'Quem já entrou nesta sala e quem está com a aba aberta agora. O sinal chega a cada minuto.' : 'Quem já entrou nesta sala. A lista mostra quem entrou, não quem está com a aba aberta agora.'}
       </p>
       <ul className="space-y-2">
         {linhas.map((l) => {
@@ -59,6 +62,7 @@ export function PainelMesa({ mestre, jogadores, pecas, eu, mestreVendo = false, 
                 <span className="font-bold">{nome}</span>
                 <span className="rounded-cordel border-2 border-borda bg-tinta px-1.5 text-xs font-bold tracking-wide text-fundo uppercase">{l.papel}</span>
                 <span className="text-xs text-tinta-suave">{npubCurta(l.pubkey)}</span>
+                {presenca && <Sinal {...situacaoDe(l.pubkey, { eu, mestre, presenca })} />}
               </div>
               {l.papel === 'Jogador' && (
                 <p className="text-sm text-tinta-suave">
@@ -115,5 +119,15 @@ export function PainelMesa({ mestre, jogadores, pecas, eu, mestreVendo = false, 
         Ver minha lista de amigos
       </a>
     </div>
+  )
+}
+
+/** Quadrado + texto: cheio e verde = online; vazio = fora. A cor nunca está sozinha. */
+function Sinal({ online, texto }: { online: boolean; texto: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-bold ${online ? 'text-verde' : 'text-tinta-suave'}`}>
+      <span aria-hidden className={`size-2.5 border-2 border-current ${online ? 'bg-current' : ''}`} />
+      {texto}
+    </span>
   )
 }
