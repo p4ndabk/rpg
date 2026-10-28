@@ -16,6 +16,7 @@ import { CamposDaFicha } from '../components/sala/CamposDaFicha'
 import { MeuPersonagem } from '../components/sala/MeuPersonagem'
 import { PainelCenario } from '../components/sala/PainelCenario'
 import { PainelPeca } from '../components/sala/PainelPeca'
+import { PainelMesa } from '../components/sala/PainelMesa'
 import { PainelRede, TEXTO_FASE, TEXTO_FASE_RELAYS } from '../components/sala/PainelRede'
 import { Pecas } from '../components/sala/Pecas'
 import { VidaBase } from '../components/sala/VidaBase'
@@ -127,7 +128,7 @@ export function TelaSala() {
   const [selecionada, setSelecionada] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<Casa | null>(null)
   const [aviso, setAviso] = useState('')
-  const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | null>(null)
+  const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | 'mesa' | null>(null)
   const [anunciada, setAnunciada] = useState<Rolagem | null>(null)
   // A última rolagem (inclusive as secretas) e a última de dano já aplicada, para o botão não aplicar duas vezes.
   const [ultima, setUltima] = useState<Rolagem | null>(null)
@@ -487,6 +488,19 @@ export function TelaSala() {
     })
   }
 
+  /** O mestre coloca no mapa o personagem de quem entrou na sala (a peça já é da pessoa). */
+  function colocarJogador(jogador: Jogador, classe: string) {
+    const nova = adicionarPeca(atual, classe || jogador.nome, 'personagem', undefined, alvo ?? undefined, undefined, jogador.pubkey)
+    if (nova === atual) return setAviso('Não deu para colocar: o grid está cheio ou a casa está ocupada.')
+    const peca = nova.pecas[nova.pecas.length - 1]!
+    mudar(nova, `colocar ${jogador.nome}`)
+    setSelecionada(peca.id)
+    setAlvo(null)
+    setGaveta(null)
+    setAviso(`${jogador.nome} entrou em ${nomeCasa(peca.coluna, peca.linha)} como ${peca.nome}.`)
+    registrar({ tipo: 'peca-adicionada', peca: 'personagem', personagens: nova.pecas.filter((p) => p.tipo === 'personagem').length, monstros: nova.pecas.filter((p) => p.tipo === 'monstro').length })
+  }
+
   /** Mais uma peça igual à selecionada (outro Goblin), na primeira casa livre. */
   function aoDuplicar() {
     if (!pecaSelecionada) return
@@ -749,6 +763,9 @@ export function TelaSala() {
               </Botao>
             </>
           )}
+          <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('mesa')}>
+            Mesa ({jogadores.length + 1})
+          </Botao>
           {podeColocar && (
             <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('pecas')}>
               + Peça
@@ -883,7 +900,16 @@ export function TelaSala() {
         </section>
 
         <aside aria-label="Dados e log" className="flex min-h-0 flex-col gap-3 lg:overflow-y-auto lg:pr-1 lg:pb-1">
-          {!mestre && <MeuPersonagem sala={visao} pubkey={eu} aoEditar={() => setGaveta('minha')} />}
+          {!mestre && (
+            <MeuPersonagem
+              sala={visao}
+              pubkey={eu}
+              nome={usuario.nome}
+              aoEditar={() => setGaveta('minha')}
+              aoColocar={() => aoAdicionar(usuario.nome, 'personagem', 1)}
+              aoEscolher={() => setGaveta('pecas')}
+            />
+          )}
           {mestre && (
             <label className="flex min-h-11 items-center gap-3 rounded-cordel border-2 border-dashed border-tinta-suave px-3 font-bold">
               <input type="checkbox" checked={secreta} onChange={(e) => setSecreta(e.target.checked)} className="size-5 accent-vermelho" />
@@ -968,6 +994,23 @@ export function TelaSala() {
         </GavetaPecas>
       )}
 
+        <GavetaPecas aberta={gaveta === 'mesa'} aoFechar={() => setGaveta(null)} titulo="Quem está na mesa">
+          {gaveta === 'mesa' && (
+            <PainelMesa
+              mestre={atual.mestre}
+              jogadores={jogadores}
+              pecas={visao.pecas}
+              eu={eu}
+              mestreVendo={mestre}
+              destino={alvo && nomeCasa(alvo.coluna, alvo.linha)}
+              aoColocar={colocarJogador}
+              aoSelecionar={(id) => {
+                setSelecionada(id)
+                setGaveta(null)
+              }}
+            />
+          )}
+        </GavetaPecas>
       <GavetaPecas aberta={gaveta === 'pecas'} aoFechar={() => setGaveta(null)}>
         <Atalhos
           alvo={alvo && nomeCasa(alvo.coluna, alvo.linha)}

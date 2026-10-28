@@ -34,7 +34,9 @@ describe('foto pública', () => {
     estado.sala = definirPvBase(estado.sala, { Goblin: 80 })
     expect(estado.sala.pvBase).toBeDefined()
     expect(visaoPublica(estado).sala.pvBase).toBeUndefined()
-    expect(JSON.stringify(visaoPublica(estado))).not.toContain('80')
+    // Procura o número 80 como valor (a pubkey aleatória do teste pode conter "80" por acaso).
+    expect(JSON.stringify(visaoPublica(estado))).not.toMatch(/[:,[]80[,}\]]/)
+    expect(JSON.stringify(visaoPublica(estado))).not.toContain('pvBase')
   })
 
   it('do monstro, a foto não leva descrição, CD nem bônus; do personagem leva', () => {

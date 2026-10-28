@@ -4,8 +4,9 @@ import { Dado } from './components/Dado'
 import { ProvedorJornada } from './components/jornada/Jornada'
 import { ProvedorUsuario, usarUsuario } from './components/usuario/Usuario'
 import { Nivel } from './components/jornada/Nivel'
-import { IconeCasa, IconeGrid, IconeLista } from './components/ui/Icones'
+import { IconeAmigos, IconeCasa, IconeGrid, IconeLista } from './components/ui/Icones'
 import { linkPara, ROTAS, TITULOS, usarRota, type Rota } from './lib/rota'
+import { TelaAmigos } from './telas/TelaAmigos'
 import { TelaDados } from './telas/TelaDados'
 import { TelaEntrar } from './telas/TelaEntrar'
 import { TelaInicio } from './telas/TelaInicio'
@@ -17,6 +18,7 @@ const ICONES: Record<Rota, ReactNode> = {
   inicio: <IconeCasa />,
   dados: <Dado faces={20} className="size-6" />,
   salas: <IconeLista />,
+  amigos: <IconeAmigos />,
   sala: <IconeGrid />,
   perfil: null,
   entrar: null,
@@ -66,7 +68,7 @@ export function App() {
             aria-label="Telas"
             className="fixed inset-x-0 bottom-0 z-20 border-t-2 border-borda bg-fundo px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:static sm:border-0 sm:bg-transparent sm:p-0"
           >
-            <ul className="grid grid-cols-4 gap-2 sm:flex">
+            <ul className="grid grid-cols-5 gap-2 sm:flex">
               {ROTAS.map((r) => (
                 <li key={r.rota}>
                   <a
@@ -91,6 +93,7 @@ export function App() {
       {rota === 'inicio' && <TelaInicio />}
       {rota === 'dados' && <TelaDados />}
       {rota === 'salas' && <TelaSalas />}
+      {rota === 'amigos' && <TelaAmigos />}
       {rota === 'sala' && <TelaSala />}
       {rota === 'perfil' && <TelaPerfil />}
       {rota === 'entrar' && <TelaEntrar />}

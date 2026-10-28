@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { usarUsuario } from '../components/usuario/Usuario'
+import { BaixarCredencial, SubirCredencial } from '../components/usuario/Credencial'
 import { Botao } from '../components/ui/Botao'
 import { Opcao } from '../components/ui/Opcao'
 import { gerarIdentidade, lerEntrada, npubDe, TAMANHO_MAXIMO_NOME } from '../lib/usuario'
 
-type Modo = 'criar' | 'colar'
+type Modo = 'criar' | 'colar' | 'arquivo'
 
 const ERROS = {
   vazia: 'Cole a sua chave. Ela começa com nsec1 ou npub1.',
@@ -74,12 +75,15 @@ function Entrada({ aoEntrar }: { aoEntrar: (u: { pubkey: string; nome: string })
 
       <fieldset>
         <legend className="font-bold">Como você quer entrar?</legend>
-        <div className="mt-1 grid grid-cols-2 gap-2">
+        <div className="mt-1 grid grid-cols-3 gap-2">
           <Opcao nome="modo-entrada" valor="criar" marcada={modo === 'criar'} aoMarcar={() => setModo('criar')}>
             Criar chave nova
           </Opcao>
           <Opcao nome="modo-entrada" valor="colar" marcada={modo === 'colar'} aoMarcar={() => setModo('colar')}>
-            Já tenho uma chave
+            Colar minha chave
+          </Opcao>
+          <Opcao nome="modo-entrada" valor="arquivo" marcada={modo === 'arquivo'} aoMarcar={() => setModo('arquivo')}>
+            Subir credencial
           </Opcao>
         </div>
       </fieldset>
@@ -104,15 +108,18 @@ function Entrada({ aoEntrar }: { aoEntrar: (u: { pubkey: string; nome: string })
             >
               {copiou ? 'Copiada!' : 'Copiar nsec'}
             </Botao>
+            <BaixarCredencial nsec={nova.nsec} nome={nomeLimpo || 'Sem nome'} />
             <label className="flex min-h-11 items-center gap-3 font-bold">
               <input type="checkbox" checked={guardou} onChange={(e) => setGuardou(e.target.checked)} className="size-5 accent-vermelho" />
-              Guardei minha nsec num lugar seguro
+              Guardei minha nsec ou baixei a credencial
             </label>
             <Botao variante="principal" disabled={!guardou} onClick={() => aoEntrar({ pubkey: nova.pubkey, nome: nomeLimpo || 'Sem nome' })}>
               Entrar
             </Botao>
           </section>
         )
+      ) : modo === 'arquivo' ? (
+        <SubirCredencial aoEntrar={(u) => aoEntrar({ pubkey: u.pubkey, nome: nomeLimpo || u.nome })} />
       ) : (
         <form onSubmit={colar} className="space-y-3">
           <div className="flex flex-col gap-1">
@@ -147,6 +154,8 @@ function Entrada({ aoEntrar }: { aoEntrar: (u: { pubkey: string; nome: string })
           </Botao>
         </form>
       )}
+      {/* Fora do formulário (formulário dentro de formulário não vale). Só aparece com uma nsec colada. */}
+      {modo === 'colar' && chave.trim().replace(/^nostr:/, '').startsWith('nsec1') && lerEntrada(chave).ok && <BaixarCredencial nsec={chave} nome={nomeLimpo || 'Sem nome'} />}
     </div>
   )
 }
@@ -180,7 +189,7 @@ function Perfil({ nome, pubkey, aoMudarNome, aoSair }: { nome: string; pubkey: s
           Trocar de usuário
         </h2>
         <p className="mb-3 text-sm text-tinta-suave">
-          Sair tira esta identidade deste navegador. Sua sala, XP e selos continuam aqui. Sem a sua nsec você não entra de novo como esta pessoa.
+          Sair tira esta identidade deste navegador. Sua sala, XP e selos continuam aqui. Sem a sua nsec (ou o arquivo de credencial e a senha) você não entra de novo como esta pessoa.
         </p>
         <Botao
           tamanho="pequeno"

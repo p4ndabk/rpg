@@ -64,6 +64,7 @@ A Sala é a tela de quem joga e é feita para **desktop, com alvo em 1920×1080*
 - **Tudo se desfaz.** Toda mudança da sala entra numa pilha de desfazer (Ctrl+Z). Atalhos de teclado do mestre: N passa a vez, D foca o dano, H esconde ou revela, Esc solta. Aviso de XP não cobre o painel.
 - **Cenário em traço de cordel.** Terrenos (parede de tijolo, porta, água ondulada, lava hachurada, árvore, pedra, buraco) são desenhos próprios em SVG, só com os tokens (nada de cor nova: o verde continua só de êxito). O mestre desenha por formas (pincel, linha, retângulo, contorno) arrastando; tudo entra no desfazer.
 - **Quem joga edita a própria ficha.** Descrição, CD e bônus de iniciativa do próprio personagem, por botão, duplo clique ou botão direito na peça. Do monstro, o que o mestre anota não vai para quem joga.
+- **Mesa à vista.** O botão "Mesa (N)" lista quem entrou e o personagem de cada um, com "Adicionar aos amigos". Quem joga e ainda está fora do mapa vê "Entrar como <nome>" no alto da bandeja; o mestre coloca cada jogador pela Mesa.
 - **Quem joga vê a própria vida.** O personagem dele fica no alto da bandeja, com PV, barra e condições.
 - **Várias salas, nenhuma se perde.** Criar ou abrir outra sala guarda a atual com tudo (peças, log, notas). A lista mostra o que está só neste navegador. Dar nome a uma peça é um toque: **Outro…**.
 - **Ação no contexto.** A linha de status acima do tabuleiro diz o que está acontecendo e mostra os botões da seleção (Soltar, Tirar, Colocar peça aqui).

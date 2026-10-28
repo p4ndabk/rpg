@@ -16,6 +16,8 @@ O app tem cinco telas. No celular, o menu fica numa barra embaixo; no desktop, n
 
 - **Salas** (`#/salas`): "Minhas salas": **crie quantas quiser** (botão **Nova sala**; a que estava aberta fica guardada, com peças, log e notas) e troque de sala quando quiser. A lista junta as salas **deste navegador** e as do **servidor** em que você conduz ou joga, com nome, seu papel, número de jogadores e peças, se há combate e há quanto tempo mudou. Busca pelo nome e botão **Entrar**, sem precisar guardar o link. Salas que só existem neste navegador têm a etiqueta "Só neste navegador"; as guardadas podem ser tiradas daqui (**Tirar daqui** mantém a do servidor, **Apagar** remove de vez). O mestre também recupera a sua sala num navegador novo (entrando com a mesma chave).
 - **Perfil** (`#/perfil`): quem é você. O usuário é uma **chave Nostr**, a mesma do Voz, usada **só como identidade**: crie uma nova (a nsec aparece uma vez, para você guardar) ou entre com a sua nsec ou npub. O RPG guarda só o nome e a chave **pública**, nunca a secreta. O Nostr é só identidade: o jogo roda num servidor próprio (ver **Sala em rede**).
+  - **Credencial em arquivo:** ao criar a chave (ou colar uma nsec), **Baixar credencial** gera um `rpg-credencial-<nome>.json`. A **senha é opcional**: com ela (mínimo de 8 caracteres) a nsec vai trancada (NIP-49) e ninguém abre o arquivo sem digitá-la; sem ela, o arquivo guarda a nsec aberta e a tela avisa. Em qualquer navegador, **Subir credencial** entra com a mesma identidade (só pede a senha se o arquivo tiver uma). O app guarda só a parte pública.
+- **Amigos** (`#/amigos`): seu **link de amigo** (`#/amigos/<npub>?nome=…`) para mandar a quem quer te adicionar, um passo a passo para **adicionar** (cole a npub, o nprofile ou abra o link; a nsec é recusada) e a lista com renomear e tirar. Fica só neste navegador (`rpg:amigos`).
 
 ### É um jogo
 
@@ -52,6 +54,10 @@ Quem **cria a sala é o mestre**; as outras pessoas **jogam**.
 - **Mover:** arraste a peça até uma casa vazia, ou toque na peça e depois na casa. A peça recém-colocada já vem selecionada. Com uma peça selecionada, a linha acima do tabuleiro mostra Soltar e Tirar. No teclado, use as setas para andar pelo grid, Enter para escolher e Esc para soltar.
 - **Combate:** "Iniciar combate" rola um D20 de iniciativa para cada peça. Uma faixa fina acima do tabuleiro mostra a rodada, a ordem e quem está na vez; "Passar a vez" segue a ordem. Rolagens sem nome entram no log com o nome de quem está na vez. Encerrar o combate e apagar a sala ficam no menu ⋯.
 - Por enquanto é uma sala só por navegador. Apagar a sala apaga as peças, o log e as notas, mas não o seu XP nem os seus selos.
+
+#### Mesa: quem está na sala
+
+O botão **Mesa (N)** abre a lista de quem entrou, para o mestre e para quem joga: papel, personagem de cada um e **Adicionar aos amigos**. A lista mostra quem **entrou**, não quem está com a aba aberta. **Quem joga** vê, enquanto está fora do mapa, o cartão **Entrar como <seu nome>** (um toque) ou **Escolher classe**. **O mestre**, na Mesa, escolhe a classe (ou o nome da pessoa) e usa **Colocar no mapa** para cada jogador que ainda está fora (na casa escolhida no tabuleiro ou na primeira livre); a peça já nasce da pessoa.
 
 #### Sala em rede (servidor Node)
 

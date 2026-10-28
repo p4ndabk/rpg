@@ -67,3 +67,14 @@ export function IconeCheck({ className = 'size-5' }: { className?: string }) {
     </svg>
   )
 }
+
+/** Duas pessoas lado a lado: a lista de amigos. */
+export function IconeAmigos({ className = 'size-6' }: { className?: string }) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" />
+      <path d="M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.4c2 .7 3.5 2.4 3.5 5.6" />
+    </svg>
+  )
+}

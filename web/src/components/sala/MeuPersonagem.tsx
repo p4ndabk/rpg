@@ -1,10 +1,42 @@
 import { CONDICOES, daVez, type Peca, type Sala } from '../../lib/sala'
+import { Botao } from '../ui/Botao'
 import { Ficha } from './Ficha'
 
 /** A ficha de quem joga: o personagem dele, com a vida, a iniciativa, a CD, a descrição e se é a sua vez. Fica no alto da bandeja. */
-export function MeuPersonagem({ sala, pubkey, aoEditar }: { sala: Sala; pubkey: string; aoEditar: () => void }) {
+export function MeuPersonagem({
+  sala,
+  pubkey,
+  nome,
+  aoEditar,
+  aoColocar,
+  aoEscolher,
+}: {
+  sala: Sala
+  pubkey: string
+  /** O nome de quem joga: um toque coloca um personagem com ele. */
+  nome: string
+  aoEditar: () => void
+  aoColocar: () => void
+  /** Abre a gaveta de peças para escolher a classe ou dar outro nome. */
+  aoEscolher: () => void
+}) {
   const peca = sala.pecas.find((p) => p.dono === pubkey)
-  if (!peca) return null
+  if (!peca) {
+    return (
+      <section aria-label="Seu personagem" className="space-y-2 rounded-cordel border-2 border-dashed border-borda bg-superficie p-3">
+        <p className="font-display text-xl">Você ainda está fora do mapa</p>
+        <p className="text-sm text-tinta-suave">Coloque o seu personagem. Para escolher o lugar, toque antes numa casa vazia do tabuleiro.</p>
+        <div className="flex flex-wrap gap-2">
+          <Botao variante="principal" tamanho="pequeno" disabled={sala.pecas.length >= sala.colunas * sala.linhas} onClick={aoColocar}>
+            Entrar como {nome}
+          </Botao>
+          <Botao tamanho="pequeno" onClick={aoEscolher}>
+            Escolher classe
+          </Botao>
+        </div>
+      </section>
+    )
+  }
   const ordem = sala.combate?.ordem.filter((o) => sala.pecas.some((p) => p.id === o.id)) ?? []
   const lugar = ordem.findIndex((o) => o.id === peca.id)
   return (
