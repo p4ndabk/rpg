@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PEDIDO_PADRAO, rolar, type Pedido } from './dados'
 import {
   JORNADA_INICIAL,
+  juntarJornadas,
   lerJornada,
   MISSOES,
   nivelDe,
@@ -125,5 +126,22 @@ describe('lerJornada', () => {
       conquistas: { 'vinte-natural': 2 },
     })
     expect(lerJornada(null)).toBeNull()
+  })
+})
+
+describe('juntarJornadas', () => {
+  const base = JORNADA_INICIAL
+  it('fica com o maior XP, os selos de uma e de outra e a data mais antiga', () => {
+    const a = { ...base, xp: 100, conquistas: { 'primeira-rolagem': 50 }, estatisticas: { ...base.estatisticas, rolagens: 10, maiorTotal: 14 } }
+    const b = { ...base, xp: 400, conquistas: { 'primeira-rolagem': 20, 'vinte-natural': 90 }, estatisticas: { ...base.estatisticas, rolagens: 4, maiorTotal: 30 } }
+    const j = juntarJornadas(a, b)
+    expect(j.xp).toBe(400)
+    expect(j.conquistas).toEqual({ 'primeira-rolagem': 20, 'vinte-natural': 90 })
+    expect(j.estatisticas).toMatchObject({ rolagens: 10, maiorTotal: 30 })
+  })
+
+  it('juntar com a inicial não muda nada', () => {
+    const a = { ...base, xp: 70, missoes: { 'primeiro-d20': 5 } }
+    expect(juntarJornadas(a, base)).toEqual(a)
   })
 })

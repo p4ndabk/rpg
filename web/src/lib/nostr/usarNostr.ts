@@ -6,6 +6,7 @@ import { abrirBarramento, type Barramento } from './barramento'
 import { chaveDoNavegador } from './chave'
 import { KIND_FOTO, lerEventoFoto, lerRecusa, montarPedido, tagDaSala, type Quem } from './eventos'
 import { PonteMestre } from './ponteMestre'
+import { desproteger, proteger } from './protegida'
 
 const ESPERA_REENVIO_MS = 8000
 
@@ -16,6 +17,8 @@ export function usarNostrMestre(
   relays: string[] | null,
   inicial: () => MensagemCliente | null,
   aoMensagem: (msg: MensagemServidor) => void,
+  /** Sala com senha: a chave (e um nome estável para ela, que refaz a ponte quando a senha muda). */
+  senha: { chave: CryptoKey; id: string } | null = null,
 ): Conexao {
   const [fase, setFase] = useState<Fase>('desligada')
   const ponte = useRef<PonteMestre | null>(null)
@@ -23,7 +26,7 @@ export function usarNostrMestre(
   const aoMensagemRef = useRef(aoMensagem)
   inicialRef.current = inicial
   aoMensagemRef.current = aoMensagem
-  const chave = relays?.join(',') ?? null
+  const chave = relays ? `${relays.join(',')}|${senha?.id ?? ''}` : null
 
   useEffect(() => {
     if (!relays) {
@@ -34,7 +37,7 @@ export function usarNostrMestre(
       setFase(f === 'conectando' ? 'conectando' : f)
       if (f === 'ok') nova.reenviarFoto()
     })
-    const nova = new PonteMestre(barramento, (m) => aoMensagemRef.current(m))
+    const nova = new PonteMestre(barramento, (m) => aoMensagemRef.current(m), undefined, undefined, senha?.chave ?? null)
     ponte.current = nova
     const abrir = inicialRef.current()
     if (abrir) nova.enviar(abrir)
@@ -55,8 +58,11 @@ export function usarNostrJogador(
   convite: { salaId: string; mestre: string; relays: string[] } | null,
   inicial: () => MensagemCliente | null,
   aoMensagem: (msg: MensagemServidor) => void,
+  /** Sala com senha: a chave que abre a foto e tranca os pedidos. */
+  senha: { chave: CryptoKey; id: string } | null = null,
 ): Conexao {
   const [fase, setFase] = useState<Fase>('desligada')
+  const [semAcesso, setSemAcesso] = useState(false)
   const [presenca, setPresenca] = useState<Presenca>({ mestreEm: null, vistos: {} })
   const [recusadas, setRecusadas] = useState({ n: 0, acao: '' })
   const barramento = useRef<Barramento | null>(null)
@@ -65,10 +71,13 @@ export function usarNostrJogador(
   const aoMensagemRef = useRef(aoMensagem)
   inicialRef.current = inicial
   aoMensagemRef.current = aoMensagem
-  const chave = convite ? `${convite.salaId}|${convite.mestre}|${convite.relays.join(',')}` : null
+  const chave = convite ? `${convite.salaId}|${convite.mestre}|${convite.relays.join(',')}|${senha?.id ?? ''}` : null
 
   function pedir(b: Barramento, msg: MensagemCliente) {
-    if (quem.current && convite) b.publicar(montarPedido(convite.salaId, quem.current, msg, Math.floor(Date.now() / 1000)))
+    if (!quem.current || !convite) return
+    const modelo = montarPedido(convite.salaId, quem.current, msg, Math.floor(Date.now() / 1000))
+    if (senha) void proteger(modelo, senha.chave).then((p) => b.publicar(p))
+    else b.publicar(modelo)
   }
 
   useEffect(() => {
@@ -85,28 +94,33 @@ export function usarNostrJogador(
     let primeira = true
     let avisouEm = 0
     let recebeu = false
-    const parar = b.assinar({ kinds: [KIND_FOTO], authors: [convite.mestre], '#d': [tagDaSala(convite.salaId)] }, (e) => {
-      if (e.created_at <= ultimo) return
-      const lida = lerEventoFoto(e)
-      if (!lida || lida.foto.sala.id !== convite.salaId) return
-      ultimo = e.created_at
-      recebeu = true
-      // A foto de cada minuto é também o sinal do mestre: guarda a hora e só mexe na sala se algo mudou.
-      setPresenca({ mestreEm: e.created_at, vistos: lida.foto.vistos ?? {} })
-      const recusa = lerRecusa(e)
-      const minha = recusa !== null && recusa.pubkey === quem.current?.pubkey
-      if (minha) setRecusadas((r) => ({ n: r.n + 1, acao: recusa.acao }))
-      if (primeira || minha || lida.versao !== ultimaVersao) {
-        aoMensagemRef.current(primeira ? { t: 'ola', papel: 'jogador', versao: lida.versao, foto: lida.foto } : { t: 'foto', versao: lida.versao, foto: lida.foto })
-      }
-      ultimaVersao = lida.versao
-      primeira = false
-      // O mestre ainda não me conhece (pedido perdido ou ele recarregou): pede de novo, no máximo a cada 10 s.
-      const eu = quem.current
-      if (eu && entrar && !lida.foto.jogadores.some((j) => j.pubkey === eu.pubkey) && Date.now() - avisouEm > 10_000) {
-        avisouEm = Date.now()
-        pedir(b, entrar)
-      }
+    const parar = b.assinar({ kinds: [KIND_FOTO], authors: [convite.mestre], '#d': [tagDaSala(convite.salaId)] }, (bruto) => {
+      if (bruto.created_at <= ultimo) return
+      void desproteger(bruto, senha?.chave ?? null).then((e) => {
+        // Trocaram a senha (ou a sala passou a ter uma): a foto chega, mas esta chave não abre.
+        setSemAcesso(e === null)
+        if (!e || e.created_at <= ultimo) return
+        const lida = lerEventoFoto(e)
+        if (!lida || lida.foto.sala.id !== convite.salaId) return
+        ultimo = e.created_at
+        recebeu = true
+        // A foto de cada minuto é também o sinal do mestre: guarda a hora e só mexe na sala se algo mudou.
+        setPresenca({ mestreEm: e.created_at, vistos: lida.foto.vistos ?? {} })
+        const recusa = lerRecusa(e)
+        const minha = recusa !== null && recusa.pubkey === quem.current?.pubkey
+        if (minha) setRecusadas((r) => ({ n: r.n + 1, acao: recusa.acao }))
+        if (primeira || minha || lida.versao !== ultimaVersao) {
+          aoMensagemRef.current(primeira ? { t: 'ola', papel: 'jogador', versao: lida.versao, foto: lida.foto } : { t: 'foto', versao: lida.versao, foto: lida.foto })
+        }
+        ultimaVersao = lida.versao
+        primeira = false
+        // O mestre ainda não me conhece (pedido perdido ou ele recarregou): pede de novo, no máximo a cada 10 s.
+        const eu = quem.current
+        if (eu && entrar && !lida.foto.jogadores.some((j) => j.pubkey === eu.pubkey) && Date.now() - avisouEm > 10_000) {
+          avisouEm = Date.now()
+          pedir(b, entrar)
+        }
+      })
     })
     if (entrar) pedir(b, entrar)
     // Sinal de vida a cada minuto, para a Mesa saber quem está online.
@@ -129,6 +143,7 @@ export function usarNostrJogador(
     fase,
     presenca,
     recusadas,
+    semAcesso,
     recusa: null,
     enviar: (msg) => {
       if (barramento.current) pedir(barramento.current, msg)

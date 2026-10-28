@@ -3,8 +3,11 @@ import { usarUsuario } from '../components/usuario/Usuario'
 import { BaixarCredencial, SubirCredencial } from '../components/usuario/Credencial'
 import { Botao } from '../components/ui/Botao'
 import { Opcao } from '../components/ui/Opcao'
+import { BuscarNoRelay, SalvarNoRelay } from '../components/backup/CofreNoRelay'
+import { usarJornada } from '../components/jornada/Jornada'
 import { tocarAvisoDeVez } from '../components/sala/AvisoDaVez'
 import { gravar, ler, usarArmazenado } from '../lib/armazenamento'
+import { juntarJornadas, lerJornada, nivelDe, tituloDoNivel } from '../lib/jornada'
 import { CHAVE_SOM, lerLigado } from '../lib/preferencias'
 import { CHAVE_CONVITE_PENDENTE } from '../lib/rede/chaves'
 import { gerarIdentidade, lerEntrada, npubDe, TAMANHO_MAXIMO_NOME } from '../lib/usuario'
@@ -225,6 +228,8 @@ function Perfil({ nome, pubkey, aoMudarNome, aoSair }: { nome: string; pubkey: s
         <p className="text-sm text-tinta-suave">O cartão &quot;Sua vez!&quot; e o título da aba aparecem de qualquer jeito.</p>
       </section>
 
+      <ProgressoNosRelays pubkey={pubkey} />
+
       <section aria-labelledby="titulo-sair" className="border-t-2 border-dashed border-tinta-suave pt-6">
         <h2 id="titulo-sair" className="font-bold">
           Trocar de usuário
@@ -242,5 +247,62 @@ function Perfil({ nome, pubkey, aoMudarNome, aoSair }: { nome: string; pubkey: s
         </Botao>
       </section>
     </div>
+  )
+}
+
+/** XP e selos ficam neste navegador; aqui dá para guardar uma cópia trancada nos relays e recuperá-la em outro. */
+function ProgressoNosRelays({ pubkey }: { pubkey: string }) {
+  const { jornada, restaurar } = usarJornada()
+  const [restaurou, setRestaurou] = useState('')
+  const selos = Object.keys(jornada.conquistas).length
+  return (
+    <section aria-labelledby="titulo-progresso" className="space-y-3">
+      <h2 id="titulo-progresso" className="font-bold">
+        Seu progresso (XP e selos)
+      </h2>
+      <p className="text-sm text-tinta-suave">
+        Hoje: nível {nivelDe(jornada.xp)}, {tituloDoNivel(nivelDe(jornada.xp))}, {jornada.xp} XP e {selos} {selos === 1 ? 'selo' : 'selos'}. Isso mora só neste navegador. Guarde uma cópia trancada nos relays para levar para outro.
+      </p>
+      <details className="rounded-cordel border-2 border-borda bg-superficie px-4 py-2">
+        <summary className="flex min-h-11 cursor-pointer items-center font-bold">Salvar nos relays</summary>
+        <div className="pb-3">
+          <SalvarNoRelay tipo="jornada" id={pubkey} pubkey={pubkey} montar={() => JSON.stringify(jornada)} />
+        </div>
+      </details>
+      <details className="rounded-cordel border-2 border-borda bg-superficie px-4 py-2">
+        <summary className="flex min-h-11 cursor-pointer items-center font-bold">Recuperar dos relays</summary>
+        <div className="space-y-3 pb-3">
+          <BuscarNoRelay
+            tipo="jornada"
+            pubkey={pubkey}
+            rotuloDoBotao="Juntar"
+            nomeDe={(texto) => {
+              try {
+                const j = lerJornada(JSON.parse(texto))
+                const n = j ? Object.keys(j.conquistas).length : 0
+                return j ? `Nível ${nivelDe(j.xp)} · ${j.xp} XP · ${n} ${n === 1 ? 'selo' : 'selos'}` : null
+              } catch {
+                return null
+              }
+            }}
+            aoEscolher={(texto) => {
+              try {
+                const salva = lerJornada(JSON.parse(texto))
+                if (!salva) return
+                restaurar(juntarJornadas(jornada, salva))
+                setRestaurou('Pronto: o progresso salvo foi juntado ao deste navegador. Nada se perde: vale o maior XP e todos os selos.')
+              } catch {
+                setRestaurou('Não consegui ler essa cópia.')
+              }
+            }}
+          />
+          {restaurou && (
+            <p role="status" className="font-bold text-verde">
+              {restaurou}
+            </p>
+          )}
+        </div>
+      </details>
+    </section>
   )
 }

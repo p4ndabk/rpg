@@ -13,7 +13,8 @@ export interface ConviteNostr {
 /** Conexão de quem joga, como fica salva: servidor (só a sala) ou relays (com a chave do mestre e os relays). */
 export interface ConexaoSala {
   salaId: string
-  nostr?: { mestre: string; relays: string[] }
+  /** `senha`: a da sala, se tiver (fica só neste navegador). */
+  nostr?: { mestre: string; relays: string[]; senha?: string }
 }
 
 const ID_SALA = /^[0-9a-zA-Z-]{8,64}$/
@@ -39,11 +40,12 @@ export function lerConviteNostr(texto: string): ConviteNostr | null {
 
 export function lerConexaoSala(v: unknown): ConexaoSala | null {
   if (typeof v !== 'object' || v === null) return null
-  const { salaId, nostr } = v as { salaId?: unknown; nostr?: { mestre?: unknown; relays?: unknown } }
+  const { salaId, nostr } = v as { salaId?: unknown; nostr?: { mestre?: unknown; relays?: unknown; senha?: unknown } }
   if (typeof salaId !== 'string' || !ID_SALA.test(salaId)) return null
   if (nostr && typeof nostr.mestre === 'string' && CHAVE.test(nostr.mestre) && Array.isArray(nostr.relays)) {
     const relays = nostr.relays.flatMap((r) => (typeof r === 'string' ? [normalizarRelay(r)] : [])).filter((r): r is string => r !== null)
-    return { salaId, nostr: { mestre: nostr.mestre, relays } }
+    const senha = typeof nostr.senha === 'string' && nostr.senha.length > 0 ? nostr.senha.slice(0, 100) : undefined
+    return { salaId, nostr: { mestre: nostr.mestre, relays, ...(senha ? { senha } : {}) } }
   }
   return { salaId }
 }

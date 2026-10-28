@@ -12,10 +12,12 @@ export interface ArquivoDeSala {
   guardada: Guardada
   /** Chave (hex) que assina a foto nos relays; null se o arquivo não traz uma válida. */
   chaveNostr: string | null
+  /** A senha da sala, se o mestre pôs uma. */
+  senha: string | null
 }
 
-export function montarArquivoSala(g: Guardada, chaveNostr: string | null): string {
-  return JSON.stringify({ v: 1, tipo: MARCA, ...g, ...(chaveNostr ? { chaveNostr } : {}) }, null, 1)
+export function montarArquivoSala(g: Guardada, chaveNostr: string | null, senha = ''): string {
+  return JSON.stringify({ v: 1, tipo: MARCA, ...g, ...(chaveNostr ? { chaveNostr } : {}), ...(senha ? { senha } : {}) }, null, 1)
 }
 
 /** Lê o texto de um arquivo de sala; null se não for um (ou se a sala dentro estiver corrompida). */
@@ -30,7 +32,8 @@ export function lerArquivoSala(texto: string): ArquivoDeSala | null {
   const guardada = lerGuardada(v)
   if (!guardada) return null
   const chave = (v as { chaveNostr?: unknown }).chaveNostr
-  return { guardada, chaveNostr: typeof chave === 'string' && CHAVE_HEX.test(chave) ? chave : null }
+  const senha = (v as { senha?: unknown }).senha
+  return { guardada, chaveNostr: typeof chave === 'string' && CHAVE_HEX.test(chave) ? chave : null, senha: typeof senha === 'string' && senha ? senha.slice(0, 100) : null }
 }
 
 export function nomeDoArquivoSala(nome: string): string {

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Botao } from '../components/ui/Botao'
 import { usarUsuario } from '../components/usuario/Usuario'
 import { gravar } from '../lib/armazenamento'
@@ -8,6 +8,7 @@ import { urlDoServidor } from '../lib/rede/servidor'
 import { lerConviteNostr } from '../lib/nostr/convite'
 import { RELAYS_PADRAO } from '../lib/nostr/relays'
 import { usarVistaDaSala, type EstadoVista } from '../lib/nostr/usarVistaDaSala'
+import { chaveDaSala } from '../lib/nostr/protegida'
 import { linkPara } from '../lib/rota'
 
 const link ='inline-flex min-h-11 items-center justify-center rounded-cordel border-2 border-borda bg-superficie px-5 py-2.5 font-bold text-tinta shadow-carimbo'
@@ -18,7 +19,21 @@ export function TelaEntrar() {
   const nostr = lerConviteNostr(location.hash)
   const salaId = nostr?.salaId ?? lerConvite(location.hash)
   // Convite sem relays usa os padrão, igual a quando a pessoa entra.
-  const vista = usarVistaDaSala(nostr && { ...nostr, relays: nostr.relays.length > 0 ? nostr.relays : [...RELAYS_PADRAO] })
+  // Sala com senha: a pessoa digita, a chave é derivada (leva cerca de meio segundo) e a vista tenta abrir a foto com ela.
+  const [rascunho, setRascunho] = useState('')
+  const [senha, setSenha] = useState('')
+  const [chave, setChave] = useState<{ chave: CryptoKey; id: string } | null>(null)
+  const [calculando, setCalculando] = useState(false)
+  const vista = usarVistaDaSala(nostr && { ...nostr, relays: nostr.relays.length > 0 ? nostr.relays : [...RELAYS_PADRAO] }, chave)
+
+  async function aoDigitarSenha(e: FormEvent) {
+    e.preventDefault()
+    if (!salaId || !rascunho) return
+    setCalculando(true)
+    setChave({ chave: await chaveDaSala(rascunho, salaId), id: rascunho })
+    setSenha(rascunho)
+    setCalculando(false)
+  }
 
   // Sem perfil ainda: lembra o convite para voltar a ele depois de entrar (ver TelaPerfil).
   const semPerfil = !usuario && !!salaId
@@ -31,7 +46,7 @@ export function TelaEntrar() {
     gravar(CHAVE_CONVITE_PENDENTE, '')
     // Sala nova: começa sem nada do que havia de outra sala.
     apagarSalaRemota()
-    gravar(CHAVE_CONEXAO, nostr ? { salaId, nostr: { mestre: nostr.mestre, relays: nostr.relays.length > 0 ? nostr.relays : [...RELAYS_PADRAO] } } : { salaId })
+    gravar(CHAVE_CONEXAO, nostr ? { salaId, nostr: { mestre: nostr.mestre, relays: nostr.relays.length > 0 ? nostr.relays : [...RELAYS_PADRAO], ...(vista?.fase === 'achou' && senha ? { senha } : {}) } } : { salaId })
     location.hash = linkPara('sala')
   }
 
@@ -61,6 +76,33 @@ export function TelaEntrar() {
               Você foi convidado para uma sala e entra como <strong>{usuario.nome}</strong>.
             </p>
             <CartaoDaSala vista={vista} />
+            {vista?.fase === 'protegida' && (
+              <form onSubmit={(e) => void aoDigitarSenha(e)} className="space-y-3 rounded-cordel border-2 border-borda bg-fundo p-3">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="senha-da-sala" className="font-bold">
+                    Senha da sala
+                  </label>
+                  <input
+                    id="senha-da-sala"
+                    type="password"
+                    autoComplete="off"
+                    value={rascunho}
+                    onChange={(e) => setRascunho(e.target.value)}
+                    aria-invalid={vista.errada || undefined}
+                    className="rounded-cordel border-2 border-borda bg-superficie px-3 py-2.5 text-tinta"
+                  />
+                  <p className="text-sm text-tinta-suave">O mestre passa a senha separada do convite.</p>
+                </div>
+                {vista.errada && (
+                  <p role="alert" className="font-bold text-vermelho">
+                    Essa senha não abre a sala. Confira com o mestre.
+                  </p>
+                )}
+                <Botao type="submit" disabled={calculando || !rascunho}>
+                  {calculando ? 'Conferindo…' : 'Usar a senha'}
+                </Botao>
+              </form>
+            )}
             <p className="text-sm text-tinta-suave">Você move só a sua peça e rola dados; o mestre cuida do resto.</p>
             <details className="text-sm text-tinta-suave">
               <summary className="inline-flex min-h-11 cursor-pointer items-center font-bold">Detalhes da conexão</summary>
@@ -74,7 +116,7 @@ export function TelaEntrar() {
                 </>
               )}
             </details>
-            <Botao variante="principal" onClick={entrar}>
+            <Botao variante="principal" onClick={entrar} disabled={vista?.fase === 'protegida'}>
               Entrar na sala
             </Botao>
           </>
@@ -91,6 +133,13 @@ function CartaoDaSala({ vista }: { vista: EstadoVista | null }) {
     return (
       <p role="status" className="rounded-cordel border-2 border-dashed border-borda p-3 text-tinta-suave">
         Procurando a sala…
+      </p>
+    )
+  }
+  if (vista.fase === 'protegida') {
+    return (
+      <p role="status" className="rounded-cordel border-2 border-borda bg-fundo p-3">
+        <strong>Essa sala tem senha.</strong> Digite a senha para ver a sala e entrar.
       </p>
     )
   }

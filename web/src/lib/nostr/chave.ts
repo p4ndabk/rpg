@@ -32,4 +32,7 @@ export function adotarChaveDoNavegador(hex: string): void {
   }
 }
 
+/** A chave do navegador em hexadecimal, para ir dentro de um arquivo de sala. */
+export const chaveHexDoNavegador = (): string => bytesToHex(chaveDoNavegador())
+
 export const chavePublicaDoNavegador = (): string => getPublicKey(chaveDoNavegador())

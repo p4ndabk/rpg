@@ -4,6 +4,7 @@ import { Servidor, type Mesas } from '../rede/mesas'
 import { visaoPublica, type MensagemCliente, type MensagemServidor } from '../rede/protocolo'
 import type { Barramento } from './barramento'
 import { KIND_PEDIDO, lerPedido, montarFoto, tagDaSala, type Recusa } from './eventos'
+import { desproteger, ehProtegida, proteger } from './protegida'
 
 // O "servidor" da sala nos relays roda DENTRO do navegador do mestre: é o mesmo `Servidor` do Node, em memória.
 // Quem joga manda pedidos (eventos efêmeros); a ponte os confere com as mesmas regras e publica a foto pública
@@ -15,6 +16,9 @@ const ATRASO_FOTO_MS = 200
 // sinal de cada pessoa. Os relays podem apagar a foto antiga, e assim ela também é renovada.
 const REPUBLICAR_MS = SINAL_MS
 const MAXIMO_VISTOS = 500
+
+/** Evento sem a marca de protegido (o caso da sala sem senha). */
+const desprotegidoAgora = (e: Event): boolean => !ehProtegida(e)
 
 export class PonteMestre {
   private readonly mesas: Mesas = {}
@@ -39,6 +43,8 @@ export class PonteMestre {
     private readonly aoMensagem: (msg: MensagemServidor) => void,
     private readonly agora: () => number = () => Math.floor(Date.now() / 1000),
     private readonly atrasoMs: number = ATRASO_FOTO_MS,
+    /** Sala com senha: a chave que tranca a foto e abre os pedidos. Nula: sala aberta. */
+    private readonly chave: CryptoKey | null = null,
   ) {
     this.servidor.conectar(LOCAL)
     this.repeticao = setInterval(() => this.publicarFoto(), REPUBLICAR_MS)
@@ -67,7 +73,16 @@ export class PonteMestre {
     if (this.sala === sala) return
     this.pararPedidos?.()
     this.sala = sala
-    this.pararPedidos = this.barramento.assinar({ kinds: [KIND_PEDIDO], '#d': [tagDaSala(sala)], since: this.agora() - 5 }, (e) => this.aoPedido(e))
+    this.pararPedidos = this.barramento.assinar({ kinds: [KIND_PEDIDO], '#d': [tagDaSala(sala)], since: this.agora() - 5 }, (e) => this.aoPedidoDoRelay(e))
+  }
+
+  /** Com senha, só vale pedido trancado com a chave da sala; sem senha, só o aberto. */
+  private aoPedidoDoRelay(e: Event): void {
+    if (!this.chave) {
+      if (desprotegidoAgora(e)) this.aoPedido(e)
+      return
+    }
+    void desproteger(e, this.chave).then((aberto) => aberto && this.aoPedido(aberto))
   }
 
   private aoPedido(e: Event): void {
@@ -102,10 +117,12 @@ export class PonteMestre {
     }
     let recusou = false
     if (mensagem.t === 'acao') {
+      const versaoAntes = mesa.versao
       const saidas = this.servidor.tratar(id, mensagem)
       this.despachar(saidas)
-      // Ação que não vale faz o servidor devolver a foto real a quem jogou; aqui isso vira uma foto com a etiqueta de recusa.
-      recusou = saidas.some((s) => s.para === id && s.msg.t === 'foto')
+      // Ação que não vale faz o servidor devolver a foto real a quem jogou sem mudar a sala; aqui isso vira uma foto com a
+      // etiqueta de recusa. (Ação que vale também manda a foto a quem jogou, mas aí a versão sobe.)
+      recusou = mesa.versao === versaoAntes && saidas.some((s) => s.para === id && s.msg.t === 'foto')
       if (recusou) this.recusada = { pubkey: quem.pubkey, acao: mensagem.acao.tipo }
     }
     // Quem pede para entrar (de novo) ainda pode estar sem foto: publica já.
@@ -137,7 +154,9 @@ export class PonteMestre {
     this.ultimoCriado = Math.max(this.agora(), this.ultimoCriado + 1)
     const vistos = this.vistosDaMesa()
     const foto = visaoPublica(mesa.estado)
-    this.barramento.publicar(montarFoto(this.sala, mesa.versao, Object.keys(vistos).length ? { ...foto, vistos } : foto, this.ultimoCriado, this.recusada ?? undefined))
+    const modelo = montarFoto(this.sala, mesa.versao, Object.keys(vistos).length ? { ...foto, vistos } : foto, this.ultimoCriado, this.recusada ?? undefined)
+    if (this.chave) void proteger(modelo, this.chave).then((p) => this.barramento.publicar(p))
+    else this.barramento.publicar(modelo)
     this.recusada = null
     this.aoMensagem({ t: 'presenca', vistos })
   }

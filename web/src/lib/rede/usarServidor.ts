@@ -16,6 +16,8 @@ export interface Conexao {
   presenca?: Presenca
   /** Só nos relays: sobe a cada jogada sua que o mestre recusou (a tela já voltou ao real). */
   recusadas?: { n: number; acao: string }
+  /** Só nos relays: a foto da sala chega, mas a senha que a pessoa tem não abre (o mestre trocou a senha). */
+  semAcesso?: boolean
   /** Motivo da última recusa do servidor, se houve. */
   recusa: Extract<MensagemServidor, { t: 'recusado' }>['motivo'] | null
   enviar: (msg: MensagemCliente) => void

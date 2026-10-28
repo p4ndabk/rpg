@@ -35,6 +35,11 @@ describe('arquivo de sala', () => {
     expect(lerArquivoSala(JSON.stringify({ v: 1, tipo: 'rpg-credencial', nsec: 'nsec1x' }))).toBeNull()
   })
 
+  it('leva a senha da sala, quando tem', () => {
+    expect(lerArquivoSala(montarArquivoSala(guardada(), CHAVE, 'abre-te'))?.senha).toBe('abre-te')
+    expect(lerArquivoSala(montarArquivoSala(guardada(), CHAVE))?.senha).toBeNull()
+  })
+
   it('nunca leva uma nsec', () => {
     expect(montarArquivoSala(guardada(), CHAVE)).not.toContain('nsec')
   })

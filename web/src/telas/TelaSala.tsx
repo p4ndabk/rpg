@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { usarJornada } from '../components/jornada/Jornada'
 import { Rolador } from '../components/Rolador'
 import { AnuncioRolagem } from '../components/sala/AnuncioRolagem'
+import { SalvarNoRelay } from '../components/backup/CofreNoRelay'
 import { baixarSala } from '../components/sala/ArquivoDeSala'
 import { AvisoDaVez } from '../components/sala/AvisoDaVez'
 import { Atalhos } from '../components/sala/Atalhos'
@@ -36,12 +37,15 @@ import { guardarServidor, urlDoServidor } from '../lib/rede/servidor'
 import { usarServidor } from '../lib/rede/usarServidor'
 import { lerDispensadas, passosDoRoteiro, roteiroCompleto } from '../lib/roteiro'
 import { haQuanto, idadeS, mestreAusente, situacaoDe, type Presenca, type Vistos } from '../lib/presenca'
-import { chavePublicaDoNavegador } from '../lib/nostr/chave'
+import { chaveHexDoNavegador, chavePublicaDoNavegador } from '../lib/nostr/chave'
+import { lerSenhaDaSala } from '../lib/nostr/protegida'
+import { usarChaveDaSala } from '../lib/nostr/usarChaveDaSala'
+import { montarArquivoSala } from '../lib/arquivoSala'
 import { baseDoConvite, guardarBase, lerConexaoSala, montarConvite } from '../lib/nostr/convite'
 import { guardarRelays, RELAYS_PADRAO, relaysDoMestre } from '../lib/nostr/relays'
 import { usarNostrJogador, usarNostrMestre } from '../lib/nostr/usarNostr'
 import { linkPara } from '../lib/rota'
-import { CHAVE_CONEXAO, CHAVE_JOGADORES, CHAVE_LOG, CHAVE_NOTAS, CHAVE_REDE_MESTRE, CHAVE_REDE_MODO, CHAVE_SALA, CHAVES_SALA_REMOTA } from '../lib/rede/chaves'
+import { CHAVE_CONEXAO, CHAVE_SENHA_SALA, CHAVE_JOGADORES, CHAVE_LOG, CHAVE_NOTAS, CHAVE_REDE_MESTRE, CHAVE_REDE_MODO, CHAVE_SALA, CHAVES_SALA_REMOTA } from '../lib/rede/chaves'
 import {
   adicionarPeca,
   alterarPv,
@@ -141,6 +145,10 @@ export function TelaSala() {
   const [relays, setRelays] = useState(relaysDoMestre)
   const [baseConvite, setBaseConvite] = useState(baseDoConvite)
   const [notas, setNotas] = usarArmazenado<string>(CHAVE_NOTAS, '', lerNotas)
+  const [senhaGuardada, setSenhaGuardada] = usarArmazenado(CHAVE_SENHA_SALA, null, lerSenhaDaSala)
+  // Sala com senha (só relays): a senha é desta sala, e a conexão só abre quando a chave está pronta.
+  const senhaDoMestre = salaLocal && senhaGuardada?.sala === salaLocal.id ? senhaGuardada.senha : ''
+  const chaveDoMestre = usarChaveDaSala(senhaDoMestre, salaLocal?.id)
   const [selecionada, setSelecionada] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<Casa | null>(null)
   const [aviso, setAviso] = useState('')
@@ -151,7 +159,7 @@ export function TelaSala() {
     const t = window.setInterval(() => setAgoraMs(Date.now()), 30_000)
     return () => window.clearInterval(t)
   }, [])
-  const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | 'mesa' | 'modelos' | null>(null)
+  const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | 'mesa' | 'modelos' | 'backup' | null>(null)
   const [anunciada, setAnunciada] = useState<Rolagem | null>(null)
   // A última rolagem (inclusive as secretas) e a última de dano já aplicada, para o botão não aplicar duas vezes.
   const [ultima, setUltima] = useState<Rolagem | null>(null)
@@ -257,7 +265,7 @@ export function TelaSala() {
   }
 
   const mestreNoServidor = usarServidor(souMestre && redeAtiva && modo === 'servidor' ? urlServidor : null, inicialDoMestre, aoMensagemDoMestre)
-  const mestreNoNostr = usarNostrMestre(souMestre && redeAtiva && modo === 'nostr' ? relays : null, inicialDoMestre, aoMensagemDoMestre)
+  const mestreNoNostr = usarNostrMestre(souMestre && redeAtiva && modo === 'nostr' && chaveDoMestre.pronta ? relays : null, inicialDoMestre, aoMensagemDoMestre, chaveDoMestre.chave)
   const conexaoMestre = modo === 'nostr' ? mestreNoNostr : mestreNoServidor
 
   // O mestre devolve ao servidor cada mudança sua, uma de cada vez (espera o "ok" antes de mandar a próxima).
@@ -286,7 +294,8 @@ export function TelaSala() {
   }
   const convite = conexao?.nostr ? { salaId: conexao.salaId, mestre: conexao.nostr.mestre, relays: conexao.nostr.relays.length > 0 ? conexao.nostr.relays : [...RELAYS_PADRAO] } : null
   const jogadorNoServidor = usarServidor(remoto && !convite ? urlServidor : null, inicialDoJogador, aoMensagemDoJogador)
-  const jogadorNoNostr = usarNostrJogador(remoto ? convite : null, inicialDoJogador, aoMensagemDoJogador)
+  const chaveDoJogador = usarChaveDaSala(conexao?.nostr?.senha ?? '', conexao?.salaId)
+  const jogadorNoNostr = usarNostrJogador(remoto && chaveDoJogador.pronta ? convite : null, inicialDoJogador, aoMensagemDoJogador, chaveDoJogador.chave)
   const conexaoJogador = convite ? jogadorNoNostr : jogadorNoServidor
   const fase = remoto ? conexaoJogador.fase : conexaoMestre.fase
   // Quem está na mesa: só existe nos relays. Para o mestre, os sinais vêm da ponte; para quem joga, da foto.
@@ -299,6 +308,7 @@ export function TelaSala() {
     if (recusadas > 0) setAviso(conexaoJogador.recusadas?.acao === 'mover' ? 'Algo impediu o movimento. A peça voltou.' : 'O mestre não aceitou essa jogada.')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recusadas])
+  const semAcesso = remoto && !!conexaoJogador.semAcesso
   const mestreSumido = remoto && !!convite && mestreEm !== null && mestreAusente(agoraMs, mestreEm)
   const presencaDaMesa: Presenca | undefined = comPresenca ? { vistos, mestreEm, agoraMs } : undefined
   const emitir = (acao: Parameters<typeof conexaoJogador.enviar>[0] extends infer M ? (M extends { t: 'acao'; acao: infer A } ? A : never) : never) =>
@@ -828,7 +838,7 @@ export function TelaSala() {
         </div>
         <div className="flex min-w-0 flex-[2] basis-72 flex-wrap items-center gap-x-3 gap-y-1">
           <p role="status" aria-live="polite" className="min-w-0 flex-1 font-bold">
-            {aviso || (mestreSumido ? 'O mestre saiu da mesa. Suas jogadas ficam esperando ele voltar.' : dicaPadrao)}
+            {aviso || (semAcesso ? 'A senha da sala mudou. Peça a nova ao mestre e entre de novo pelo convite.' : mestreSumido ? 'O mestre saiu da mesa. Suas jogadas ficam esperando ele voltar.' : dicaPadrao)}
           </p>
           {!mestre && pecaSelecionada && (
             <div className="flex flex-wrap items-center gap-2">
@@ -979,11 +989,22 @@ export function TelaSala() {
                   tamanho="pequeno"
                   className="w-full"
                   onClick={() => {
-                    baixarSala({ sala: atual, log, jogadores, notas })
+                    baixarSala({ sala: atual, log, jogadores, notas }, senhaDoMestre)
                     setAviso('Sala salva num arquivo. Para abrir em outro navegador: Salas › Abrir de um arquivo.')
                   }}
                 >
                   Salvar sala em arquivo
+                </Botao>
+                <Botao
+                  tamanho="pequeno"
+                  className="w-full"
+                  aria-haspopup="dialog"
+                  onClick={() => {
+                    fecharMenu()
+                    setGaveta('backup')
+                  }}
+                >
+                  Salvar sala nos relays
                 </Botao>
                 <Botao tamanho="pequeno" className="w-full" onClick={aoApagarSala}>
                   Apagar sala
@@ -1283,6 +1304,8 @@ export function TelaSala() {
               baseConvite={baseConvite}
               aoMudarBase={(texto) => setBaseConvite(guardarBase(texto))}
               fase={conexaoMestre.fase}
+              senha={senhaDoMestre}
+              aoMudarSenha={(senha) => setSenhaGuardada(senha ? { sala: atual.id, senha } : null)}
               servidor={urlServidor}
               aoMudarServidor={(url) => setUrlServidor(guardarServidor(url))}
               link={
@@ -1292,6 +1315,19 @@ export function TelaSala() {
               }
               jogadores={jogadores}
             />
+          </GavetaPecas>
+          <GavetaPecas aberta={gaveta === 'backup'} aoFechar={() => setGaveta(null)} titulo="Salvar nos relays">
+            {gaveta === 'backup' && mestre && (
+              <>
+                <p className="mb-3 text-sm text-tinta-suave">Guarda a sala inteira (peças escondidas, notas e log) trancada nos relays. Em outro computador, entre com a sua chave e use Salas › Procurar nos relays.</p>
+                <SalvarNoRelay
+                  tipo="sala"
+                  id={atual.id}
+                  pubkey={eu}
+                  montar={() => montarArquivoSala({ sala: atual, log, jogadores, notas }, chaveHexDoNavegador(), senhaDoMestre)}
+                />
+              </>
+            )}
           </GavetaPecas>
           <GavetaPecas aberta={gaveta === 'modelos'} aoFechar={() => setGaveta(null)} titulo="Modelos de mapa">
             {gaveta === 'modelos' && (

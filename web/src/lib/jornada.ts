@@ -370,3 +370,19 @@ export function lerJornada(v: unknown): Jornada | null {
     conquistas: lerMarcas(v.conquistas, CONQUISTAS),
   }
 }
+
+/** Junta duas jornadas (a deste navegador e a de uma cópia): nada se perde, vale o maior de cada número e as marcas mais antigas. */
+export function juntarJornadas(a: Jornada, b: Jornada): Jornada {
+  const marcas = (x: Record<string, number>, y: Record<string, number>) => {
+    const r = { ...x }
+    for (const [id, quando] of Object.entries(y)) r[id] = id in r ? Math.min(r[id]!, quando) : quando
+    return r
+  }
+  const e = (k: keyof Estatisticas) => Math.max(a.estatisticas[k], b.estatisticas[k])
+  return {
+    xp: Math.max(a.xp, b.xp),
+    estatisticas: { rolagens: e('rolagens'), testes: e('testes'), somaNaturais: e('somaNaturais'), vinteNaturais: e('vinteNaturais'), umNaturais: e('umNaturais'), maiorTotal: e('maiorTotal') },
+    missoes: marcas(a.missoes, b.missoes),
+    conquistas: marcas(a.conquistas, b.conquistas),
+  }
+}

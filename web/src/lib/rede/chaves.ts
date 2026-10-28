@@ -4,6 +4,8 @@ export const CHAVE_SALA = 'rpg:sala'
 export const CHAVE_LOG = 'rpg:sala:log'
 export const CHAVE_JOGADORES = 'rpg:sala:jogadores'
 export const CHAVE_NOTAS = 'rpg:sala:notas'
+/** A senha da sala que o mestre conduz (só relays): `{ sala, senha }`. Fica neste navegador, como a sala. */
+export const CHAVE_SENHA_SALA = 'rpg:sala:senha'
 /** As outras salas deste navegador (a que está aberta fica nas chaves acima). */
 export const CHAVE_ARQUIVO = 'rpg:salas:arquivo'
 /** O mestre deixou a sala aberta no servidor. */

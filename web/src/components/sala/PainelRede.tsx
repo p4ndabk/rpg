@@ -5,6 +5,7 @@ import { npubCurta } from '../../lib/usuario'
 import { ehLocal } from '../../lib/nostr/convite'
 import { lerListaDeRelays } from '../../lib/nostr/relays'
 import { testarRelays, textoDoResultado, type ResultadoRelay } from '../../lib/nostr/testarRelays'
+import { TAMANHO_MINIMO_SENHA_SALA } from '../../lib/nostr/protegida'
 import { Botao } from '../ui/Botao'
 import { Opcao } from '../ui/Opcao'
 
@@ -36,6 +37,9 @@ interface PainelRedeProps {
   ativa: boolean
   aoAlternar: (ativa: boolean) => void
   fase: Fase
+  /** Senha da sala (só relays); vazia: sala aberta a quem tiver o convite. */
+  senha: string
+  aoMudarSenha: (senha: string) => void
   servidor: string
   /** Troca o endereço do servidor (vazio volta ao padrão). */
   aoMudarServidor: (url: string) => void
@@ -44,7 +48,7 @@ interface PainelRedeProps {
 }
 
 /** O mestre abre a sala no servidor, copia o convite e vê quem entrou. */
-export function PainelRede({ modo, aoMudarModo, relays, aoMudarRelays, baseConvite, aoMudarBase, ativa, aoAlternar, fase, servidor, aoMudarServidor, link, jogadores }: PainelRedeProps) {
+export function PainelRede({ modo, aoMudarModo, relays, aoMudarRelays, baseConvite, aoMudarBase, ativa, aoAlternar, fase, senha, aoMudarSenha, servidor, aoMudarServidor, link, jogadores }: PainelRedeProps) {
   const [copiou, setCopiou] = useState(false)
   const [endereco, setEndereco] = useState(servidor)
   const [listaRelays, setListaRelays] = useState(relays.join('\n'))
@@ -164,6 +168,8 @@ export function PainelRede({ modo, aoMudarModo, relays, aoMudarRelays, baseConvi
       </section>
       )}
 
+      {nostr && <SenhaDaSala senha={senha} aoMudar={aoMudarSenha} />}
+
       {ativa && (
         <section aria-labelledby="titulo-convite" className="space-y-2">
           <h3 id="titulo-convite" className="font-bold">
@@ -246,5 +252,62 @@ export function PainelRede({ modo, aoMudarModo, relays, aoMudarRelays, baseConvi
         </p>
       </section>
     </div>
+  )
+}
+
+/** Senha opcional para entrar: trancar a foto e os pedidos da sala, que nos relays são públicos. */
+function SenhaDaSala({ senha, aoMudar }: { senha: string; aoMudar: (senha: string) => void }) {
+  const [rascunho, setRascunho] = useState('')
+  const [erro, setErro] = useState('')
+  const tem = senha !== ''
+  return (
+    <section aria-labelledby="titulo-senha-sala" className="space-y-2">
+      <h3 id="titulo-senha-sala" className="font-bold">
+        Senha da sala (opcional)
+      </h3>
+      <p className="text-sm text-tinta-suave">
+        {tem
+          ? 'A sala tem senha: a foto e os pedidos vão trancados nos relays, e só entra quem souber a senha. Passe a senha por fora do convite.'
+          : 'Sem senha, entra quem tiver o convite. Com senha, o convite sozinho não basta e a sala fica ilegível para quem não souber.'}
+      </p>
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (rascunho.length < TAMANHO_MINIMO_SENHA_SALA) return setErro(`A senha precisa de pelo menos ${TAMANHO_MINIMO_SENHA_SALA} caracteres.`)
+          setErro('')
+          aoMudar(rascunho)
+          setRascunho('')
+        }}
+      >
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <label htmlFor="senha-da-sala-mestre" className="text-sm font-bold">
+            {tem ? 'Trocar a senha' : 'Escolher uma senha'}
+          </label>
+          <input
+            id="senha-da-sala-mestre"
+            type="password"
+            autoComplete="new-password"
+            value={rascunho}
+            onChange={(e) => setRascunho(e.target.value)}
+            className="rounded-cordel border-2 border-borda bg-superficie px-3 py-2.5 text-tinta"
+          />
+        </div>
+        <Botao type="submit" tamanho="pequeno">
+          {tem ? 'Trocar' : 'Definir senha'}
+        </Botao>
+        {tem && (
+          <Botao tamanho="pequeno" onClick={() => aoMudar('')}>
+            Tirar a senha
+          </Botao>
+        )}
+      </form>
+      {erro && (
+        <p role="alert" className="text-sm font-bold text-vermelho">
+          {erro}
+        </p>
+      )}
+      {tem && <p className="text-xs text-tinta-suave">Quem já entrou precisa entrar de novo com a senha nova. A senha fica só neste navegador e no arquivo da sala.</p>}
+    </section>
   )
 }

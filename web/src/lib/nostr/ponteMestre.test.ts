@@ -5,6 +5,7 @@ import type { Estado, MensagemServidor } from '../rede/protocolo'
 import type { Barramento } from './barramento'
 import { KIND_FOTO, KIND_PEDIDO, lerEventoFoto, montarPedido, tagDaSala } from './eventos'
 import { PonteMestre } from './ponteMestre'
+import { chaveDaSala, desproteger, ehProtegida, proteger } from './protegida'
 
 const SALA = 'sala-1234567'
 const chave = () => generateSecretKey()
@@ -107,6 +108,16 @@ describe('PonteMestre', () => {
     expect(fotos().at(-1)!.tags.some((t) => t[0] === 'recusou')).toBe(false)
   })
 
+  it('ação que vale não leva etiqueta de recusa', () => {
+    const { pedir, fotos } = montar()
+    pedir({ t: 'entrar', sala: SALA, pubkey: ANA, nome: 'Ana' })
+    vi.advanceTimersByTime(300)
+    pedir({ t: 'acao', acao: { tipo: 'colocar', nome: 'Ana' } })
+    vi.advanceTimersByTime(300)
+    expect(lerEventoFoto(fotos().at(-1)!)!.foto.sala.pecas.some((p) => p.dono === ANA)).toBe(true)
+    expect(fotos().some((f) => f.tags.some((t) => t[0] === 'recusou'))).toBe(false)
+  })
+
   it('pedido que finge ser o mestre é ignorado', () => {
     const { pedir, fotos } = montar()
     const antes = fotos().length
@@ -169,5 +180,46 @@ describe('PonteMestre', () => {
     const criados = fotos().map((f) => f.created_at)
     expect(criados).toEqual([...criados].sort((a, b) => a - b))
     expect(new Set(criados).size).toBe(criados.length)
+  })
+})
+
+describe('PonteMestre com senha', () => {
+  // Trancar usa fluxos reais do navegador (CompressionStream): aqui os timers são de verdade.
+  async function montar() {
+    const rel = relayDeMentira()
+    const chaveSala = await chaveDaSala('abre-te', SALA, 1000)
+    let relogio = 1000
+    const ponte = new PonteMestre(rel.barramentoDe(chave()), () => {}, () => relogio++, 0, chaveSala)
+    ponte.enviar({ t: 'abrir', sala: SALA, pubkey: MESTRE, nome: 'Mestra', estado: estadoInicial(), versao: 0 })
+    const fotos = () => rel.publicados.filter((e) => e.kind === KIND_FOTO)
+    await vi.waitFor(() => expect(fotos()).toHaveLength(1))
+    const entrar = async (aberto: boolean) => {
+      const modelo = montarPedido(SALA, { pubkey: ANA, nome: 'Ana' }, { t: 'entrar', sala: SALA, pubkey: ANA, nome: 'Ana' }, 1000)
+      rel.barramentoDe(chave()).publicar(aberto ? modelo : await proteger(modelo, chaveSala))
+    }
+    const jogadores = async () => lerEventoFoto((await desproteger(fotos().at(-1)!, chaveSala))!)!.foto.jogadores.map((j) => j.nome)
+    return { ponte, fotos, entrar, chaveSala, jogadores }
+  }
+
+  it('a foto sai trancada: marcada como protegida e ilegível sem a senha', async () => {
+    const { ponte, fotos, chaveSala } = await montar()
+    const foto = fotos()[0]!
+    expect(ehProtegida(foto)).toBe(true)
+    expect(foto.content).not.toContain('Cripta')
+    expect(lerEventoFoto(foto)).toBeNull()
+    expect(lerEventoFoto((await desproteger(foto, chaveSala))!)?.foto.sala.nome).toBe('Cripta')
+    ponte.fechar()
+  })
+
+  it('só entra quem manda o pedido trancado com a senha', async () => {
+    const { ponte, fotos, entrar, jogadores } = await montar()
+    await entrar(true)
+    await new Promise((r) => setTimeout(r, 150))
+    expect(fotos()).toHaveLength(1)
+    expect(await jogadores()).toEqual([])
+    await entrar(false)
+    await vi.waitFor(() => expect(fotos().length).toBeGreaterThan(1))
+    expect(await jogadores()).toEqual(['Ana'])
+    ponte.fechar()
   })
 })

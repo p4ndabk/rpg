@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usarJornada } from '../components/jornada/Jornada'
+import { BuscarNoRelay } from '../components/backup/CofreNoRelay'
 import { AbrirArquivoDeSala, baixarSala } from '../components/sala/ArquivoDeSala'
 import { CriarSala } from '../components/sala/CriarSala'
 import { Botao } from '../components/ui/Botao'
 import { usarUsuario } from '../components/usuario/Usuario'
-import type { ArquivoDeSala } from '../lib/arquivoSala'
+import { lerArquivoSala, type ArquivoDeSala } from '../lib/arquivoSala'
 import { gravar, ler } from '../lib/armazenamento'
 import { adotarChaveDoNavegador } from '../lib/nostr/chave'
-import { apagarSalaRemota, CHAVE_CONEXAO } from '../lib/rede/chaves'
+import { lerSenhaDaSala } from '../lib/nostr/protegida'
+import { apagarSalaRemota, CHAVE_CONEXAO, CHAVE_SENHA_SALA } from '../lib/rede/chaves'
 import { pedir } from '../lib/rede/consulta'
 import type { MensagemServidor, ResumoSala } from '../lib/rede/protocolo'
 import { urlDoServidor } from '../lib/rede/servidor'
@@ -97,13 +99,14 @@ export function TelaSalas() {
     location.hash = linkPara('sala')
   }
 
-  function abrirDeArquivo({ guardada, chaveNostr }: ArquivoDeSala) {
+  function abrirDeArquivo({ guardada, chaveNostr, senha }: ArquivoDeSala) {
     if (!usuario) return
     setErro('')
     if (guardada.sala.mestre && guardada.sala.mestre !== usuario.pubkey) {
       return setErro('Essa sala foi criada por outra chave. Entre com a chave de quem a criou para abrir.')
     }
     if (chaveNostr) adotarChaveDoNavegador(chaveNostr)
+    if (senha) gravar(CHAVE_SENHA_SALA, { sala: guardada.sala.id, senha })
     abrirSala(localStorage, guardada, false)
     location.hash = linkPara('sala')
   }
@@ -177,6 +180,23 @@ export function TelaSalas() {
             As suas salas, neste navegador e no servidor <code className="text-sm">{url}</code>.
           </p>
 
+          <details className="mt-4 rounded-cordel border-2 border-borda bg-superficie px-4 py-2">
+            <summary className="flex min-h-11 cursor-pointer items-center font-bold">Procurar uma sala salva nos relays</summary>
+            <div className="pb-3">
+              <p className="mb-3 text-sm text-tinta-suave">Em outro computador? Entre com a sua chave, digite a senha da cópia e abra a sala daqui.</p>
+              <BuscarNoRelay
+                tipo="sala"
+                pubkey={usuario.pubkey}
+                rotuloDoBotao="Abrir"
+                nomeDe={(texto) => lerArquivoSala(texto)?.guardada.sala.nome ?? null}
+                aoEscolher={(texto) => {
+                  const arquivo = lerArquivoSala(texto)
+                  if (arquivo) abrirDeArquivo(arquivo)
+                }}
+              />
+            </div>
+          </details>
+
           <div className="mt-5 flex flex-wrap items-end gap-3">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <label htmlFor="busca-salas" className="font-bold">
@@ -245,7 +265,8 @@ export function TelaSalas() {
                           aria-label={`Salvar ${s.nome} num arquivo`}
                           onClick={() => {
                             const g = lerSalaLocal(localStorage, s.id)
-                            if (g) baixarSala(g)
+                            const guardada = ler(CHAVE_SENHA_SALA, null, lerSenhaDaSala)
+                            if (g) baixarSala(g, guardada?.sala === s.id ? guardada.senha : '')
                           }}
                         >
                           Salvar

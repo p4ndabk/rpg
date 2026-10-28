@@ -1,13 +1,12 @@
 import { useRef, type ChangeEvent } from 'react'
 import { lerArquivoSala, montarArquivoSala, nomeDoArquivoSala, type ArquivoDeSala as Arquivo } from '../../lib/arquivoSala'
-import { chaveDoNavegador } from '../../lib/nostr/chave'
+import { chaveHexDoNavegador } from '../../lib/nostr/chave'
 import type { Guardada } from '../../lib/salas'
-import { bytesToHex } from 'nostr-tools/utils'
 import { Botao } from '../ui/Botao'
 
 /** Baixa a sala (peças, escondidos, log, notas e a chave dos relays) num arquivo .json. */
-export function baixarSala(g: Guardada): void {
-  const url = URL.createObjectURL(new Blob([montarArquivoSala(g, bytesToHex(chaveDoNavegador()))], { type: 'application/json' }))
+export function baixarSala(g: Guardada, senha = ''): void {
+  const url = URL.createObjectURL(new Blob([montarArquivoSala(g, chaveHexDoNavegador(), senha)], { type: 'application/json' }))
   const a = document.createElement('a')
   a.href = url
   a.download = nomeDoArquivoSala(g.sala.nome)

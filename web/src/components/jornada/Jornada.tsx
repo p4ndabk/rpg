@@ -6,6 +6,8 @@ import { IconeCheck, IconeSelo } from '../ui/Icones'
 interface ValorJornada {
   jornada: Jornada
   registrar: (e: Evento) => void
+  /** Troca a jornada (por uma cópia salva). */
+  restaurar: (j: Jornada) => void
 }
 
 const Contexto = createContext<ValorJornada | null>(null)
@@ -45,10 +47,18 @@ export function ProvedorJornada({ children }: { children: ReactNode }) {
     [setJornada],
   )
 
+  const restaurar = useCallback(
+    (j: Jornada) => {
+      atual.current = j
+      setJornada(j)
+    },
+    [setJornada],
+  )
+
   const dispensar = useCallback((id: string) => setAvisos((a) => a.filter((x) => x.id !== id)), [])
 
   return (
-    <Contexto.Provider value={{ jornada, registrar }}>
+    <Contexto.Provider value={{ jornada, registrar, restaurar }}>
       {children}
       <Avisos avisos={avisos} aoDispensar={dispensar} />
     </Contexto.Provider>
