@@ -1,0 +1,23 @@
+:root {
+  color-scheme: light dark;
+
+  --fundo: light-dark(#f2e8d5, #1b1916);
+  --superficie: light-dark(#fbf6ec, #26231f);
+  --tinta: light-dark(#1b1916, #f2e8d5);
+  --tinta-suave: light-dark(#5b544a, #b9af9f);
+  --vermelho: light-dark(#b3261e, #ec6652);
+  --sobre-vermelho: light-dark(#fbf6ec, #1b1916);
+  /* Verde-mata: só para êxito e progresso (sucesso, XP, missão cumprida). Nunca para ação. */
+  --verde: light-dark(#3a6b35, #78b86e);
+  --sobre-verde: light-dark(#fbf6ec, #1b1916);
+  --borda: light-dark(#1b1916, #f2e8d5);
+}
+
+/* Preferência manual do usuário (botão de tema) sobrepõe o sistema. */
+:root[data-tema='claro'] {
+  color-scheme: light;
+}
+
+:root[data-tema='escuro'] {
+  color-scheme: dark;
+}
