@@ -54,15 +54,37 @@ export function pvDaPeca(sala: Pick<Sala, 'pvBase'>, nome: string, tipo: TipoPec
 export const CONDICOES = ['Caído', 'Envenenado', 'Atordoado', 'Com medo', 'Abençoado'] as const
 export type Condicao = (typeof CONDICOES)[number]
 
-/** Cenário que o mestre monta no tabuleiro. Quem joga vê tudo; paredes, árvores e pedras barram o caminho. */
+/**
+ * Cenário que o mestre monta no tabuleiro. Quem joga vê tudo. Parede, árvore, pedra e os objetos grandes barram o
+ * caminho; piso, água, ponte e armadilha só aparecem. O `grupo` organiza a paleta.
+ */
+export const GRUPOS_DE_TERRENO = ['Construção', 'Natureza', 'Piso', 'Objetos', 'Perigos'] as const
+export type GrupoDeTerreno = (typeof GRUPOS_DE_TERRENO)[number]
+
 export const TERRENOS = [
-  { valor: 'parede', rotulo: 'Parede', bloqueia: true },
-  { valor: 'porta', rotulo: 'Porta', bloqueia: false },
-  { valor: 'agua', rotulo: 'Água', bloqueia: false },
-  { valor: 'lava', rotulo: 'Lava', bloqueia: false },
-  { valor: 'arvore', rotulo: 'Árvore', bloqueia: true },
-  { valor: 'pedra', rotulo: 'Pedra', bloqueia: true },
-  { valor: 'buraco', rotulo: 'Buraco', bloqueia: false },
+  { valor: 'parede', rotulo: 'Parede', bloqueia: true, grupo: 'Construção' },
+  { valor: 'porta', rotulo: 'Porta', bloqueia: false, grupo: 'Construção' },
+  { valor: 'grade', rotulo: 'Grade', bloqueia: true, grupo: 'Construção' },
+  { valor: 'coluna', rotulo: 'Coluna', bloqueia: true, grupo: 'Construção' },
+  { valor: 'escada', rotulo: 'Escada', bloqueia: false, grupo: 'Construção' },
+  { valor: 'cerca', rotulo: 'Cerca', bloqueia: true, grupo: 'Construção' },
+  { valor: 'ponte', rotulo: 'Ponte', bloqueia: false, grupo: 'Construção' },
+  { valor: 'arvore', rotulo: 'Árvore', bloqueia: true, grupo: 'Natureza' },
+  { valor: 'pedra', rotulo: 'Pedra', bloqueia: true, grupo: 'Natureza' },
+  { valor: 'mato', rotulo: 'Mato alto', bloqueia: false, grupo: 'Natureza' },
+  { valor: 'cacto', rotulo: 'Cacto', bloqueia: true, grupo: 'Natureza' },
+  { valor: 'agua', rotulo: 'Água', bloqueia: false, grupo: 'Natureza' },
+  { valor: 'piso', rotulo: 'Piso de pedra', bloqueia: false, grupo: 'Piso' },
+  { valor: 'madeira', rotulo: 'Piso de madeira', bloqueia: false, grupo: 'Piso' },
+  { valor: 'grama', rotulo: 'Grama', bloqueia: false, grupo: 'Piso' },
+  { valor: 'areia', rotulo: 'Areia', bloqueia: false, grupo: 'Piso' },
+  { valor: 'bau', rotulo: 'Baú', bloqueia: true, grupo: 'Objetos' },
+  { valor: 'mesa', rotulo: 'Mesa', bloqueia: true, grupo: 'Objetos' },
+  { valor: 'fogueira', rotulo: 'Fogueira', bloqueia: true, grupo: 'Objetos' },
+  { valor: 'altar', rotulo: 'Altar', bloqueia: false, grupo: 'Objetos' },
+  { valor: 'lava', rotulo: 'Lava', bloqueia: false, grupo: 'Perigos' },
+  { valor: 'buraco', rotulo: 'Buraco', bloqueia: false, grupo: 'Perigos' },
+  { valor: 'armadilha', rotulo: 'Armadilha', bloqueia: false, grupo: 'Perigos' },
 ] as const
 export type Terreno = (typeof TERRENOS)[number]['valor']
 
@@ -78,6 +100,14 @@ export interface Casa {
   coluna: number
   linha: number
 }
+
+/** Uma casa que o mestre quer enfatizar, com uma frase curta opcional ("O baú está trancado"). */
+export interface Destaque extends Casa {
+  texto?: string
+}
+
+export const DESTAQUES_MAX = 8
+export const DESTAQUE_TEXTO_MAX = 40
 
 export interface Peca extends Casa {
   id: string
@@ -133,15 +163,17 @@ export interface Sala {
   mestre?: string
   /** Casas pintadas pelo mestre. Casa que não está na lista é chão livre. */
   cenario?: CasaDeCenario[]
+  /** Casas que o mestre destacou para a mesa toda ver (ênfase: "olhem aqui"). */
+  destaques?: Destaque[]
   /** Vida base que o mestre definiu por nome de peça (ou `#personagem` / `#monstro`). O que falta usa o valor de fábrica. */
   pvBase?: Record<string, number>
 }
 
-// Colunas vão de A a Z, para cada casa ter um nome curto como C4.
+// Colunas vão de A a Z e seguem em AA, AB… (como numa planilha), para cada casa ter um nome curto como C4 ou AB12.
 export const COLUNAS_MIN = 4
-export const COLUNAS_MAX = 26
+export const COLUNAS_MAX = 50
 export const LINHAS_MIN = 4
-export const LINHAS_MAX = 20
+export const LINHAS_MAX = 50
 export const COLUNAS_PADRAO = 12
 export const LINHAS_PADRAO = 8
 
@@ -185,9 +217,34 @@ export function editarSala(sala: Sala, nome: string, colunas: number, linhas: nu
     colunas: entre(colunas, minimo.colunas, COLUNAS_MAX),
     linhas: entre(linhas, minimo.linhas, LINHAS_MAX),
   }
-  // O cenário que ficou fora do grid some junto com as casas.
-  return nova.cenario ? comCenario(nova, nova.cenario.filter((c) => dentro(nova, c))) : nova
+  // O cenário e os destaques que ficaram fora do grid somem junto com as casas.
+  const semDestaques = nova.destaques ? comDestaques(nova, nova.destaques.filter((d) => dentro(nova, d))) : nova
+  return semDestaques.cenario ? comCenario(semDestaques, semDestaques.cenario.filter((c) => dentro(semDestaques, c))) : semDestaques
 }
+
+function comDestaques(sala: Sala, destaques: Destaque[]): Sala {
+  const { destaques: _antigos, ...resto } = sala
+  return destaques.length ? { ...resto, destaques } : resto
+}
+
+export function destaqueEm(sala: Sala, coluna: number, linha: number): Destaque | undefined {
+  return sala.destaques?.find((d) => d.coluna === coluna && d.linha === linha)
+}
+
+/**
+ * Liga o destaque numa casa (com um texto curto, se vier) ou o tira se ela já estava destacada. Passou do máximo,
+ * o mais antigo sai: o mestre nunca fica travado.
+ */
+export function alternarDestaque(sala: Sala, casa: Casa, texto?: string): Sala {
+  if (!dentro(sala, casa)) return sala
+  const atuais = sala.destaques ?? []
+  if (destaqueEm(sala, casa.coluna, casa.linha)) return comDestaques(sala, atuais.filter((d) => !(d.coluna === casa.coluna && d.linha === casa.linha)))
+  const limpo = texto?.trim().slice(0, DESTAQUE_TEXTO_MAX)
+  const novo: Destaque = { coluna: casa.coluna, linha: casa.linha, ...(limpo ? { texto: limpo } : {}) }
+  return comDestaques(sala, [...atuais, novo].slice(-DESTAQUES_MAX))
+}
+
+export const limparDestaques = (sala: Sala): Sala => comDestaques(sala, [])
 
 function comCenario(sala: Sala, cenario: CasaDeCenario[]): Sala {
   const { cenario: _antigo, ...resto } = sala
@@ -261,8 +318,19 @@ export function casasDaForma(forma: Forma, a: Casa, b: Casa): Casa[] {
 }
 
 /** Nome da casa no estilo de tabuleiro: coluna em letra, linha em número (A1 no canto de cima). */
+/** 0 → A, 25 → Z, 26 → AA, 27 → AB… */
+export function nomeColuna(coluna: number): string {
+  let n = coluna
+  let nome = ''
+  do {
+    nome = String.fromCharCode(65 + (n % 26)) + nome
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return nome
+}
+
 export function nomeCasa(coluna: number, linha: number): string {
-  return `${String.fromCharCode(65 + coluna)}${linha + 1}`
+  return `${nomeColuna(coluna)}${linha + 1}`
 }
 
 export function pecaEm(sala: Sala, coluna: number, linha: number): Peca | undefined {
@@ -559,6 +627,14 @@ export function lerSala(v: unknown): Sala | null {
     cenario.push({ coluna: c.coluna, linha: c.linha, terreno: c.terreno })
   }
   if (cenario.length) sala.cenario = cenario
+  const destaques: Destaque[] = []
+  for (const d of Array.isArray(v.destaques) ? v.destaques : []) {
+    if (!ehObjeto(d) || !inteiroEntre(d.coluna, 0, sala.colunas - 1) || !inteiroEntre(d.linha, 0, sala.linhas - 1)) continue
+    if (destaques.some((x) => x.coluna === d.coluna && x.linha === d.linha)) continue
+    const texto = typeof d.texto === 'string' ? d.texto.trim().slice(0, DESTAQUE_TEXTO_MAX) : ''
+    destaques.push({ coluna: d.coluna, linha: d.linha, ...(texto ? { texto } : {}) })
+  }
+  if (destaques.length) sala.destaques = destaques.slice(-DESTAQUES_MAX)
   if (ehObjeto(v.pvBase)) {
     const base: Record<string, number> = {}
     for (const [nome, pv] of Object.entries(v.pvBase).slice(0, 60)) {

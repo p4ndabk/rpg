@@ -77,7 +77,8 @@ export function App() {
                     className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-cordel border-2 border-borda bg-superficie px-3 text-sm font-bold text-tinta shadow-carimbo-pequeno aria-[current=page]:bg-tinta aria-[current=page]:text-fundo sm:min-h-11 sm:flex-row sm:gap-2 sm:text-base"
                   >
                     {ICONES[r.rota]}
-                    {r.rotulo}
+                    {/* Entre 640 px e 1280 px a barra só tem ícones (o nome fica para o leitor de tela): não cabe tudo numa linha. */}
+                    <span className="sm:max-xl:sr-only">{r.rotulo}</span>
                   </a>
                 </li>
               ))}

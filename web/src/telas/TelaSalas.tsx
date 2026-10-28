@@ -9,6 +9,7 @@ import { pedir } from '../lib/rede/consulta'
 import type { MensagemServidor, ResumoSala } from '../lib/rede/protocolo'
 import { urlDoServidor } from '../lib/rede/servidor'
 import { linkPara } from '../lib/rota'
+import { salaDoModelo, type Modelo } from '../lib/modelos'
 import { criarSala } from '../lib/sala'
 import { abrirSala, abrirSalaNova, apagarGuardada, lerSalaLocal, salasLocais } from '../lib/salas'
 import { tempoRelativo } from '../lib/tempo'
@@ -86,9 +87,9 @@ export function TelaSalas() {
     return linhas.filter((l) => l.nome.toLocaleLowerCase('pt-BR').includes(termo))
   }, [linhas, busca])
 
-  function criar(nome: string, colunas: number, linhasGrid: number) {
+  function criar(nome: string, colunas: number, linhasGrid: number, modelo?: Modelo) {
     if (!usuario) return
-    abrirSalaNova(localStorage, criarSala(nome, colunas, linhasGrid, undefined, usuario.pubkey))
+    abrirSalaNova(localStorage, modelo ? salaDoModelo(modelo, nome, undefined, usuario.pubkey) : criarSala(nome, colunas, linhasGrid, undefined, usuario.pubkey))
     registrar({ tipo: 'sala-criada' })
     location.hash = linkPara('sala')
   }

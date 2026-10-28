@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { MODELOS, TAMANHOS, type Modelo } from '../../lib/modelos'
 import {
   COLUNAS_MAX,
   COLUNAS_MIN,
@@ -6,9 +7,12 @@ import {
   LINHAS_MAX,
   LINHAS_MIN,
   LINHAS_PADRAO,
+  nomeColuna,
 } from '../../lib/sala'
 import { Contador } from '../Contador'
 import { Botao } from '../ui/Botao'
+import { Opcao } from '../ui/Opcao'
+import { ModelosDeMapa } from './ModelosDeMapa'
 import { IconeGrid } from '../ui/Icones'
 
 // Para quem trava no nome: um toque e sai uma ideia.
@@ -24,7 +28,8 @@ const NOMES = [
 ]
 
 interface CriarSalaProps {
-  aoCriar: (nome: string, colunas: number, linhas: number) => void
+  /** Com `modelo`, o tamanho e o cenário vêm dele. */
+  aoCriar: (nome: string, colunas: number, linhas: number, modelo?: Modelo) => void
   /** Quando a criação é uma escolha (vindo da lista de salas), dá para voltar. */
   aoCancelar?: () => void
 }
@@ -33,6 +38,10 @@ export function CriarSala({ aoCriar, aoCancelar }: CriarSalaProps) {
   const [nome, setNome] = useState('')
   const [colunas, setColunas] = useState(COLUNAS_PADRAO)
   const [linhas, setLinhas] = useState(LINHAS_PADRAO)
+  // Começa por um modelo pronto (o primeiro é o tabuleiro limpo, igual ao de antes) ou só pelo tamanho do grid.
+  const [como, setComo] = useState<'modelo' | 'grid'>('modelo')
+  const [modeloId, setModeloId] = useState(MODELOS[0]!.id)
+  const modelo = MODELOS.find((m) => m.id === modeloId)!
 
   function sortear() {
     const outros = NOMES.filter((n) => n !== nome)
@@ -41,11 +50,12 @@ export function CriarSala({ aoCriar, aoCancelar }: CriarSalaProps) {
 
   function aoEnviar(e: FormEvent) {
     e.preventDefault()
-    aoCriar(nome, colunas, linhas)
+    if (como === 'modelo') aoCriar(nome, modelo.colunas, modelo.linhas, modelo)
+    else aoCriar(nome, colunas, linhas)
   }
 
   return (
-    <main className="mx-auto max-w-xl px-4 pt-6 pb-32 sm:pb-12">
+    <main className="mx-auto max-w-3xl px-4 pt-6 pb-32 sm:pb-12">
       <div className="flex items-center gap-4">
         <IconeGrid className="size-14 shrink-0 -rotate-3" />
         <div>
@@ -86,17 +96,61 @@ export function CriarSala({ aoCriar, aoCancelar }: CriarSalaProps) {
           <p className="text-sm text-tinta-suave">Sem ideia? Sorteie. Em branco, vira "Minha sala".</p>
         </div>
 
-        <Contador
-          emLinha
-          id="colunas"
-          rotulo="Colunas"
-          valor={colunas}
-          min={COLUNAS_MIN}
-          max={COLUNAS_MAX}
-          aoMudar={setColunas}
-          ajuda={`De A a ${String.fromCharCode(64 + colunas)}`}
-        />
-        <Contador emLinha id="linhas" rotulo="Linhas" valor={linhas} min={LINHAS_MIN} max={LINHAS_MAX} aoMudar={setLinhas} ajuda={`De 1 a ${linhas}`} />
+        <fieldset>
+          <legend className="font-bold">Como começar?</legend>
+          <div className="mt-1 grid grid-cols-2 gap-2">
+            <Opcao nome="como-criar" valor="modelo" marcada={como === 'modelo'} aoMarcar={() => setComo('modelo')}>
+              Modelo pronto
+            </Opcao>
+            <Opcao nome="como-criar" valor="grid" marcada={como === 'grid'} aoMarcar={() => setComo('grid')}>
+              Só o grid
+            </Opcao>
+          </div>
+        </fieldset>
+
+        {como === 'modelo' ? (
+          <div className="space-y-2">
+            <p className="text-sm text-tinta-suave">
+              Escolha um mapa pronto: o tamanho já combina com a cena e dá para mudar tudo depois, em <strong>Cenário</strong> e <strong>Editar sala</strong>.
+            </p>
+            <ModelosDeMapa escolhido={modeloId} rotuloDoBotao="Escolher" aoEscolher={(m) => setModeloId(m.id)} />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div role="group" aria-label="Tamanhos recomendados" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {TAMANHOS.map((t) => (
+                <button
+                  key={t.nome}
+                  type="button"
+                  aria-pressed={colunas === t.colunas && linhas === t.linhas}
+                  onClick={() => {
+                    setColunas(t.colunas)
+                    setLinhas(t.linhas)
+                  }}
+                  className="rounded-cordel border-2 border-borda bg-superficie p-2 text-left shadow-carimbo-pequeno aria-pressed:bg-tinta aria-pressed:text-fundo"
+                >
+                  <span className="block font-bold">{t.nome}</span>
+                  <span className="block text-sm">
+                    {t.colunas} × {t.linhas}
+                  </span>
+                  <span className="block text-xs opacity-80">{t.dica}</span>
+                </button>
+              ))}
+            </div>
+            <Contador
+              emLinha
+              id="colunas"
+              rotulo="Colunas"
+              valor={colunas}
+              min={COLUNAS_MIN}
+              max={COLUNAS_MAX}
+              aoMudar={setColunas}
+              ajuda={`De A a ${nomeColuna(colunas - 1)}`}
+            />
+            <Contador emLinha id="linhas" rotulo="Linhas" valor={linhas} min={LINHAS_MIN} max={LINHAS_MAX} aoMudar={setLinhas} ajuda={`De 1 a ${linhas}`} />
+            <p className="text-sm text-tinta-suave">Mapa grande (mais de uns 30 de lado) rola na tela: dá zoom, arrasta e tem miniatura para se achar.</p>
+          </div>
+        )}
 
         <Botao type="submit" variante="principal" className="w-full">
           Criar sala (+20 XP)

@@ -28,6 +28,11 @@ import {
   lerSala,
   moverPeca,
   nomeCasa,
+  alternarDestaque,
+  destaqueEm,
+  DESTAQUES_MAX,
+  DESTAQUE_TEXTO_MAX,
+  limparDestaques,
   passarVez,
   pecaEm,
   pvPadrao,
@@ -54,6 +59,9 @@ describe('casas', () => {
     expect(nomeCasa(0, 0)).toBe('A1')
     expect(nomeCasa(2, 3)).toBe('C4')
     expect(nomeCasa(25, 19)).toBe('Z20')
+    expect(nomeCasa(26, 0)).toBe('AA1')
+    expect(nomeCasa(27, 11)).toBe('AB12')
+    expect(nomeCasa(49, 49)).toBe('AX50')
   })
 
   it('acha a primeira casa livre linha por linha', () => {
@@ -461,6 +469,41 @@ describe('definirPv', () => {
   })
 })
 
+describe('destaques', () => {
+  const sala = () => salaVazia(8, 8)
+
+  it('liga e desliga o destaque de uma casa, com texto curto', () => {
+    const a = alternarDestaque(sala(), { coluna: 2, linha: 3 }, '  O baú está trancado  ')
+    expect(a.destaques).toEqual([{ coluna: 2, linha: 3, texto: 'O baú está trancado' }])
+    expect(destaqueEm(a, 2, 3)?.texto).toBe('O baú está trancado')
+    const b = alternarDestaque(a, { coluna: 2, linha: 3 })
+    expect(b.destaques).toBeUndefined()
+  })
+
+  it('texto vazio não vira texto, e o texto é cortado', () => {
+    expect(alternarDestaque(sala(), { coluna: 0, linha: 0 }, '   ').destaques).toEqual([{ coluna: 0, linha: 0 }])
+    expect(alternarDestaque(sala(), { coluna: 0, linha: 0 }, 'x'.repeat(100)).destaques![0]!.texto).toHaveLength(DESTAQUE_TEXTO_MAX)
+  })
+
+  it('fora do grid não destaca; passou do máximo, o mais antigo sai', () => {
+    expect(alternarDestaque(sala(), { coluna: 9, linha: 0 })).toEqual(sala())
+    let s = sala()
+    for (let i = 0; i < DESTAQUES_MAX + 2; i++) s = alternarDestaque(s, { coluna: i % 8, linha: Math.floor(i / 8) })
+    expect(s.destaques).toHaveLength(DESTAQUES_MAX)
+    expect(destaqueEm(s, 0, 0)).toBeUndefined()
+    expect(destaqueEm(s, 1, 1)).toBeDefined()
+  })
+
+  it('limpar tira todos; encolher o grid tira os que ficaram fora; lerSala descarta lixo', () => {
+    let s = alternarDestaque(alternarDestaque(sala(), { coluna: 1, linha: 1 }), { coluna: 7, linha: 7 })
+    expect(limparDestaques(s).destaques).toBeUndefined()
+    s = editarSala(s, 'x', 4, 4)
+    expect(s.destaques).toEqual([{ coluna: 1, linha: 1 }])
+    const lida = lerSala({ ...s, destaques: [{ coluna: 1, linha: 1, texto: 'ok' }, { coluna: 1, linha: 1 }, { coluna: 99, linha: 0 }, 'x', null] })
+    expect(lida?.destaques).toEqual([{ coluna: 1, linha: 1, texto: 'ok' }])
+  })
+})
+
 describe('editarSala', () => {
   it('muda o nome e o tamanho, e nome vazio mantém o antigo', () => {
     const sala = salaVazia(6, 6)
@@ -470,7 +513,7 @@ describe('editarSala', () => {
 
   it('respeita os limites do grid', () => {
     const sala = salaVazia(6, 6)
-    expect(editarSala(sala, 'x', 99, 99)).toMatchObject({ colunas: 26, linhas: 20 })
+    expect(editarSala(sala, 'x', 99, 99)).toMatchObject({ colunas: 50, linhas: 50 })
     expect(editarSala(sala, 'x', 1, 1)).toMatchObject({ colunas: 4, linhas: 4 })
   })
 
@@ -534,6 +577,8 @@ describe('lerSala', () => {
 
   it('recusa sala corrompida', () => {
     expect(lerSala(null)).toBeNull()
-    expect(lerSala({ ...salaVazia(), colunas: 40 })).toBeNull()
+    expect(lerSala({ ...salaVazia(), colunas: 51 })).toBeNull()
+    expect(lerSala({ ...salaVazia(), linhas: 51 })).toBeNull()
+    expect(lerSala({ ...salaVazia(), colunas: 40 })).not.toBeNull()
   })
 })

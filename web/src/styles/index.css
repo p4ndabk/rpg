@@ -28,6 +28,7 @@
   --animate-tremer: tremer 420ms ease-in-out;
   --animate-voar: voar 800ms ease-out forwards;
   --animate-pulsar: pulsar 1.6s ease-in-out infinite;
+  --animate-destacar: destacar 1.4s ease-in-out infinite;
 
   /* Resultado e avisos chegam como um carimbo batendo no papel. */
   @keyframes carimbar {
@@ -76,6 +77,13 @@
   @keyframes pulsar {
     50% {
       transform: scale(1.12);
+    }
+  }
+
+  /* Casa destacada pelo mestre: o contorno pulsa devagar. Só com movimento permitido (motion-safe). */
+  @keyframes destacar {
+    50% {
+      opacity: 0.35;
     }
   }
 

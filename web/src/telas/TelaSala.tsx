@@ -16,6 +16,9 @@ import { CamposDaFicha } from '../components/sala/CamposDaFicha'
 import { MeuPersonagem } from '../components/sala/MeuPersonagem'
 import { PainelCenario } from '../components/sala/PainelCenario'
 import { PainelPeca } from '../components/sala/PainelPeca'
+import { aplicarModelo, salaDoModelo, type Modelo } from '../lib/modelos'
+import { ModelosDeMapa } from '../components/sala/ModelosDeMapa'
+import { PainelDestaque } from '../components/sala/PainelDestaque'
 import { PainelMesa } from '../components/sala/PainelMesa'
 import { PainelRede, TEXTO_FASE, TEXTO_FASE_RELAYS } from '../components/sala/PainelRede'
 import { Pecas } from '../components/sala/Pecas'
@@ -38,7 +41,10 @@ import {
   alterarPv,
   alternarCondicao,
   alternarOculta,
+  alternarDestaque,
   casaBloqueada,
+  destaqueEm,
+  limparDestaques,
   casaLivrePerto,
   criarSala,
   daVez,
@@ -66,7 +72,6 @@ import {
   type Casa,
   type CamposFicha,
   type Condicao,
-  type Forma,
   type Peca,
   type Sala,
   type Terreno,
@@ -128,7 +133,7 @@ export function TelaSala() {
   const [selecionada, setSelecionada] = useState<string | null>(null)
   const [alvo, setAlvo] = useState<Casa | null>(null)
   const [aviso, setAviso] = useState('')
-  const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | 'mesa' | null>(null)
+  const [gaveta, setGaveta] = useState<'pecas' | 'ficha' | 'notas' | 'sala' | 'rede' | 'vida' | 'minha' | 'mesa' | 'modelos' | null>(null)
   const [anunciada, setAnunciada] = useState<Rolagem | null>(null)
   // A última rolagem (inclusive as secretas) e a última de dano já aplicada, para o botão não aplicar duas vezes.
   const [ultima, setUltima] = useState<Rolagem | null>(null)
@@ -138,9 +143,11 @@ export function TelaSala() {
   const [menuPeca, setMenuPeca] = useState<{ id: string; x: number; y: number } | null>(null)
   // Menu do botão direito numa casa vazia: colocar peça ali.
   const [menuCasa, setMenuCasa] = useState<{ casa: Casa; x: number; y: number } | null>(null)
-  // Montar o cenário: o mestre escolhe a forma e o terreno e arrasta no tabuleiro.
+  // Montar o cenário: o mestre escolhe o terreno e toca nas casas.
   const [cenarioAberto, setCenarioAberto] = useState(false)
-  const [forma, setForma] = useState<Forma>('pincel')
+  // Destacar casas para a mesa toda ver, com uma frase curta opcional.
+  const [destaqueAberto, setDestaqueAberto] = useState(false)
+  const [textoDestaque, setTextoDestaque] = useState('')
   const [terreno, setTerreno] = useState<Terreno | null>('parede')
   // Desfazer: as últimas mudanças da sala, da mais nova para a mais velha. Só vale enquanto a página estiver aberta.
   const [pilha, setPilha] = useState<Passo[]>([])
@@ -167,6 +174,17 @@ export function TelaSala() {
   const emVoo = useRef(false)
   const [ack, setAck] = useState(0)
   const cabecaDoLog = useRef<string | null>(null)
+
+  // Quem joga é avisado quando o mestre destaca uma casa nova (a primeira leitura da sala não conta).
+  const destaquesVistos = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    const atuais = new Map((sala?.destaques ?? []).map((d) => [`${d.coluna},${d.linha}`, d]))
+    const antes = destaquesVistos.current
+    destaquesVistos.current = new Set(atuais.keys())
+    if (!antes || souMestre) return
+    const nova = [...atuais].find(([k]) => !antes.has(k))?.[1]
+    if (nova) setAviso(`O mestre destacou ${nomeCasa(nova.coluna, nova.linha)}${nova.texto ? `: ${nova.texto}` : ''}.`)
+  }, [sala?.destaques, souMestre])
 
   /** Guarda um estado que veio do servidor como sendo o da sala. */
   function adotar(e: Estado) {
@@ -374,8 +392,8 @@ export function TelaSala() {
   if (!sala) {
     return (
       <CriarSala
-        aoCriar={(nome, colunas, linhas) => {
-          setSala(criarSala(nome, colunas, linhas, undefined, usuario.pubkey))
+        aoCriar={(nome, colunas, linhas, modelo) => {
+          setSala(modelo ? salaDoModelo(modelo, nome, undefined, usuario.pubkey) : criarSala(nome, colunas, linhas, undefined, usuario.pubkey))
           setPilha([])
           registrar({ tipo: 'sala-criada' })
         }}
@@ -424,6 +442,13 @@ export function TelaSala() {
   }
 
   function aoTocarCasa(coluna: number, linha: number) {
+    // No modo Destaque o toque liga ou desliga o destaque da casa, em vez de selecionar.
+    if (mestre && destaqueAberto) {
+      const ligando = !destaqueEm(atual, coluna, linha)
+      mudar(alternarDestaque(atual, { coluna, linha }, textoDestaque), `destaque em ${nomeCasa(coluna, linha)}`)
+      setAviso(ligando ? `${nomeCasa(coluna, linha)} destacada para a mesa.` : `Destaque de ${nomeCasa(coluna, linha)} tirado.`)
+      return
+    }
     const peca = pecaEm(visao, coluna, linha)
     if (peca) {
       if (peca.id === selecionada) selecionar(null)
@@ -584,6 +609,14 @@ export function TelaSala() {
   function aoLimparCenario() {
     if (!atual.cenario || !window.confirm('Apagar todo o cenário? Dá para desfazer.')) return
     mudar(pintar(atual, atual.cenario, null), 'limpar o cenário')
+  }
+
+  /** Troca o cenário e o tamanho pelo do modelo. As peças ficam e nenhuma entra numa parede. */
+  function aoAplicarModelo(modelo: Modelo) {
+    if ((atual.cenario?.length ?? 0) > 0 && !window.confirm(`Trocar o cenário atual pelo modelo "${modelo.nome}"? As peças ficam. Dá para desfazer.`)) return
+    mudar(aplicarModelo(atual, modelo), `modelo ${modelo.nome}`)
+    setGaveta(null)
+    setAviso(`Modelo "${modelo.nome}" aplicado: ${modelo.colunas} × ${modelo.linhas} casas.`)
   }
 
   function aoIniciarCombate() {
@@ -755,8 +788,26 @@ export function TelaSala() {
               <Botao tamanho="pequeno" disabled={!ultimoPasso} title="Atalho: Ctrl+Z" onClick={desfazer}>
                 {ultimoPasso ? `Desfazer: ${ultimoPasso.rotulo}` : 'Desfazer'}
               </Botao>
-              <Botao tamanho="pequeno" aria-pressed={cenarioAberto} onClick={() => setCenarioAberto((a) => !a)}>
+              <Botao
+                tamanho="pequeno"
+                aria-pressed={cenarioAberto}
+                onClick={() => {
+                  setCenarioAberto((a) => !a)
+                  setDestaqueAberto(false)
+                }}
+              >
                 Cenário
+              </Botao>
+              <Botao
+                tamanho="pequeno"
+                aria-pressed={destaqueAberto}
+                title="Marca casas para a mesa toda ver"
+                onClick={() => {
+                  setDestaqueAberto((a) => !a)
+                  setCenarioAberto(false)
+                }}
+              >
+                Destaque
               </Botao>
               <Botao tamanho="pequeno" aria-haspopup="dialog" onClick={() => setGaveta('notas')}>
                 Notas
@@ -839,7 +890,7 @@ export function TelaSala() {
             alvo={alvo}
             podeMover={moveEu}
             mostrarVida={(p) => mestre || p.tipo === 'personagem'}
-            pintura={mestre && cenarioAberto ? { forma, terreno, aoPintar } : undefined}
+            pintura={mestre && cenarioAberto ? { terreno, aoPintar } : undefined}
             aoMenuCasa={
               mestre || podeColocar
                 ? (casa, ponto) => {
@@ -870,16 +921,24 @@ export function TelaSala() {
           />
           {mestre && cenarioAberto && (
             <PainelCenario
-              forma={forma}
               terreno={terreno}
-              aoForma={setForma}
               aoTerreno={setTerreno}
               aoLimpar={aoLimparCenario}
               aoConcluir={() => setCenarioAberto(false)}
+              aoModelos={() => setGaveta('modelos')}
               temCenario={(atual.cenario?.length ?? 0) > 0}
             />
           )}
-          {mestre && !cenarioAberto && (
+          {mestre && destaqueAberto && (
+            <PainelDestaque
+              texto={textoDestaque}
+              aoTexto={setTextoDestaque}
+              destaques={atual.destaques ?? []}
+              aoLimpar={() => mudar(limparDestaques(atual), 'limpar os destaques')}
+              aoConcluir={() => setDestaqueAberto(false)}
+            />
+          )}
+          {mestre && !cenarioAberto && !destaqueAberto && (
             <PainelPeca
               peca={pecaSelecionada ?? null}
               sala={atual}
@@ -1072,6 +1131,14 @@ export function TelaSala() {
               }
               jogadores={jogadores}
             />
+          </GavetaPecas>
+          <GavetaPecas aberta={gaveta === 'modelos'} aoFechar={() => setGaveta(null)} titulo="Modelos de mapa">
+            {gaveta === 'modelos' && (
+              <>
+                <p className="mb-3 text-sm text-tinta-suave">Troca o cenário e o tamanho por um mapa pronto. As peças ficam onde estão (e nunca dentro de uma parede). Ctrl+Z desfaz.</p>
+                <ModelosDeMapa umaColuna aoEscolher={aoAplicarModelo} />
+              </>
+            )}
           </GavetaPecas>
           <GavetaPecas aberta={gaveta === 'vida'} aoFechar={() => setGaveta(null)} titulo="Vida base das peças">
             {gaveta === 'vida' && <VidaBase sala={atual} aoSalvar={aoSalvarVidaBase} aoCancelar={() => setGaveta(null)} />}

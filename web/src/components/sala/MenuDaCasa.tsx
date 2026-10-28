@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ATALHOS, nomeCasa, nomeTerreno, pvDaPeca, TERRENOS, type Casa, type Sala, type Terreno, type TipoPeca } from '../../lib/sala'
+import { ATALHOS, nomeCasa, nomeTerreno, pvDaPeca, type Casa, type Sala, type Terreno, type TipoPeca } from '../../lib/sala'
 import { Botao } from '../ui/Botao'
 import { Ficha } from './Ficha'
-import { AmostraTerreno } from './Terreno'
+import { SeletorDeTerreno } from './SeletorDeTerreno'
 import { usarMenuFlutuante } from './usarMenuFlutuante'
 
 interface MenuDaCasaProps {
@@ -135,23 +135,15 @@ export function MenuDaCasa({ casa, ponto, sala, mestre, terrenoAtual, bloqueada,
       {mestre && (
         <div role="group" aria-label="Terreno da casa" className={bloqueada ? '' : 'border-t-2 border-dashed border-tinta-suave pt-3'}>
           <p className="mb-1 text-xs font-bold tracking-wide text-tinta-suave uppercase">Terreno da casa{terrenoAtual ? `: ${nomeTerreno(terrenoAtual)}` : ''}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {TERRENOS.map((t) => (
-              <button
-                key={t.valor}
-                type="button"
-                title={t.rotulo}
-                aria-label={`Pintar ${t.rotulo.toLowerCase()} em ${nomeCasa(casa.coluna, casa.linha)}`}
-                aria-pressed={terrenoAtual === t.valor}
-                onClick={() => {
-                  aoPintar(t.valor, casa)
-                  aoFechar()
-                }}
-                className="rounded-cordel border-2 border-transparent p-0.5 aria-pressed:border-borda"
-              >
-                <AmostraTerreno tipo={t.valor} />
-              </button>
-            ))}
+          <SeletorDeTerreno
+            terreno={terrenoAtual}
+            comNome={false}
+            aoEscolher={(t) => {
+              aoPintar(t, casa)
+              aoFechar()
+            }}
+          />
+          <div className="mt-1.5">
             <Botao
               tamanho="pequeno"
               disabled={!terrenoAtual}
@@ -160,7 +152,7 @@ export function MenuDaCasa({ casa, ponto, sala, mestre, terrenoAtual, bloqueada,
                 aoFechar()
               }}
             >
-              Limpar
+              Limpar terreno
             </Botao>
           </div>
         </div>
