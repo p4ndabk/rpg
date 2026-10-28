@@ -1,7 +1,7 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools'
 import { describe, expect, it } from 'vitest'
 import { PEDIDO_PADRAO, noMomento, rolar } from '../dados'
-import { adicionarPeca, alternarOculta, criarSala, definirPvBase, disfarcarCenario, editarFicha, iniciarCombate, pintar, type Sala } from '../sala'
+import { adicionarPeca, alterarPv, alternarOculta, criarSala, definirPvBase, disfarcarCenario, editarFicha, iniciarCombate, pintar, type Sala } from '../sala'
 import { aplicarAcao, lerAcao, lerConexao, lerConvite, lerEstado, lerFoto, lerMensagemCliente, textoDaAcao, visaoPublica, type Estado } from './protocolo'
 
 const chave = () => getPublicKey(generateSecretKey())
@@ -58,16 +58,22 @@ describe('classe na ficha', () => {
 })
 
 describe('foto pública', () => {
-  it('não leva peça escondida, vida de monstro, rolagem secreta nem notas', () => {
+  it('não leva peça escondida, rolagem secreta nem notas', () => {
     const estado = base()
     estado.sala = alternarOculta(estado.sala, 'o')
     const secreta = noMomento(rolar(PEDIDO_PADRAO), { secreta: true })
     const aberta = rolar(PEDIDO_PADRAO)
     const foto = visaoPublica({ ...estado, log: [secreta, aberta] })
     expect(foto.sala.pecas.map((p) => p.id)).toEqual(['g'])
-    expect(foto.sala.pecas[0]).toMatchObject({ pv: 1, pvMax: 1 })
     expect(foto.log).toEqual([aberta])
     expect(JSON.stringify(foto)).not.toContain('"id":"o"')
+  })
+
+  it('leva a vida do monstro, para a mesa ver o dano e quem caiu', () => {
+    const estado = base()
+    const goblin = estado.sala.pecas.find((p) => p.id === 'g')!
+    estado.sala = alterarPv(estado.sala, goblin.id, -goblin.pv)
+    expect(visaoPublica(estado).sala.pecas.find((p) => p.id === goblin.id)).toMatchObject({ pv: 0, pvMax: goblin.pvMax })
   })
 
   it('não leva a vida base dos monstros', () => {

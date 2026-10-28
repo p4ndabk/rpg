@@ -1,7 +1,15 @@
-// Relays públicos usados pela sala. Lista do Voz (testada em 2026-10-18): o relay.damus.io pede AUTH e o nos.lol
-// não conectou, então ficaram de fora.
+// Relays públicos usados pela sala, testados em 2026-10-28 (publicar e ler um evento 30078: 150 a 300 ms cada).
+// O relay.damus.io pede AUTH e o eden.nostr.land cobra, então ficaram de fora. Seis no ar: se uma rede bloqueia
+// alguns, a foto da sala ainda chega por outro. Convite antigo (só os três primeiros) continua valendo.
 
-export const RELAYS_PADRAO: readonly string[] = ['wss://relay.primal.net', 'wss://purplerelay.com', 'wss://relay.snort.social']
+export const RELAYS_PADRAO: readonly string[] = [
+  'wss://relay.primal.net',
+  'wss://purplerelay.com',
+  'wss://relay.snort.social',
+  'wss://nos.lol',
+  'wss://offchain.pub',
+  'wss://nostr.mom',
+]
 export const MAXIMO_RELAYS = 6
 const CHAVE_RELAYS = 'rpg:nostr:relays'
 

@@ -988,7 +988,7 @@ export function TelaSala() {
         sala={visao}
         aoPassar={aoPassarVez}
         podePassar={podePassar}
-        detalhado={mestre}
+        detalhado
         selecionada={selecionada}
         aoSelecionar={mestre ? (id) => selecionar(id === selecionada ? null : id) : undefined}
       />
@@ -1014,7 +1014,7 @@ export function TelaSala() {
             selecionada={selecionada}
             alvo={alvo}
             podeMover={moveEu}
-            mostrarVida={(p) => mestre || p.tipo === 'personagem'}
+            mostrarVida={() => true}
             pintura={mestre && cenarioAberto ? { terreno, aoPintar } : undefined}
             aoMenuCasa={
               mestre || podeColocar

@@ -33,9 +33,9 @@ export interface Foto {
 export function visaoPublica({ sala, log, jogadores }: Estado): Foto {
   const visiveis = pecasVisiveis(sala, false).map((p) => {
     if (p.tipo !== 'monstro') return p
-    // Do monstro, quem joga não vê a vida, a descrição (o mestre pode anotar segredos) nem a CD.
+    // Do monstro, quem joga vê a vida e quando caiu, mas não a descrição (o mestre pode anotar segredos) nem a CD.
     const { descricao: _d, cd: _c, bonusIniciativa: _b, ...resto } = p
-    return { ...resto, pv: 1, pvMax: 1 }
+    return resto
   })
   const ids = new Set(visiveis.map((p) => p.id))
   let combate = sala.combate

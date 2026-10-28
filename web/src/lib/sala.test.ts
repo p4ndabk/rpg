@@ -43,6 +43,7 @@ import {
   pvPadrao,
   primeiraCasaLivre,
   tamanhoMinimo,
+  marcaDaVez,
   vezChegouParaMim,
   removerPeca,
   type Sala,
@@ -338,21 +339,28 @@ describe('cenário', () => {
 })
 
 describe('vezChegouParaMim', () => {
-  const sala = adicionarPeca(comPeca(salaVazia(), 'Goblin'), 'Mago', 'personagem', 'm', undefined, undefined, JOGADOR)
-  const mago = sala.pecas.find((p) => p.id === 'm')!
-  const goblin = sala.pecas.find((p) => p.nome === 'Goblin')!
+  const base = adicionarPeca(comPeca(salaVazia(), 'Goblin'), 'Mago', 'personagem', 'm', undefined, undefined, JOGADOR)
+  const goblin = base.pecas.find((p) => p.nome === 'Goblin')!
+  const naVez = (id: string, rodada = 1): Sala => ({
+    ...base,
+    combate: { ordem: [{ id: 'm', iniciativa: 15 }, { id: goblin.id, iniciativa: 10 }], vez: id === 'm' ? 0 : 1, rodada },
+  })
 
   it('avisa quando a vez muda para a peça de quem joga', () => {
-    expect(vezChegouParaMim(goblin.id, mago, JOGADOR)).toBe(true)
-    expect(vezChegouParaMim(undefined, mago, JOGADOR)).toBe(true)
+    expect(vezChegouParaMim(marcaDaVez(naVez(goblin.id)), naVez('m'), JOGADOR)).toBe(true)
+    expect(vezChegouParaMim(undefined, naVez('m'), JOGADOR)).toBe(true)
+  })
+
+  it('avisa de novo na rodada seguinte, mesmo sem ver a vez de quem agiu no meio', () => {
+    expect(vezChegouParaMim(marcaDaVez(naVez('m', 1)), naVez('m', 2), JOGADOR)).toBe(true)
   })
 
   it('não avisa se a vez já era dela, se é de outra pessoa ou se ninguém está na vez', () => {
-    expect(vezChegouParaMim(mago.id, mago, JOGADOR)).toBe(false)
-    expect(vezChegouParaMim(mago.id, goblin, JOGADOR)).toBe(false)
-    expect(vezChegouParaMim(goblin.id, mago, 'c'.repeat(64))).toBe(false)
-    expect(vezChegouParaMim(goblin.id, undefined, JOGADOR)).toBe(false)
-    expect(vezChegouParaMim(goblin.id, mago, undefined)).toBe(false)
+    expect(vezChegouParaMim(marcaDaVez(naVez('m')), naVez('m'), JOGADOR)).toBe(false)
+    expect(vezChegouParaMim(marcaDaVez(naVez('m')), naVez(goblin.id), JOGADOR)).toBe(false)
+    expect(vezChegouParaMim(marcaDaVez(naVez(goblin.id)), naVez('m'), 'c'.repeat(64))).toBe(false)
+    expect(vezChegouParaMim(marcaDaVez(naVez(goblin.id)), base, JOGADOR)).toBe(false)
+    expect(vezChegouParaMim(marcaDaVez(naVez(goblin.id)), naVez('m'), undefined)).toBe(false)
   })
 })
 

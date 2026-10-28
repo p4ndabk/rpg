@@ -636,11 +636,21 @@ export function daVez(sala: Sala): Peca | undefined {
 }
 
 /**
- * A vez acabou de chegar numa peça de `pubkey`? `anterior` é o id de quem estava na vez antes (undefined: ninguém).
+ * Identifica a vez que está valendo: rodada, posição na ordem e peça. Mudou a marca, mudou a vez, mesmo que seja a mesma
+ * peça de novo (quem joga recebe a foto da sala por relays e pode perder as vezes de quem agiu no meio).
+ */
+export function marcaDaVez(sala: Sala): string | undefined {
+  const vez = daVez(sala)
+  return vez && sala.combate ? `${sala.combate.rodada}:${sala.combate.vez}:${vez.id}` : undefined
+}
+
+/**
+ * A vez acabou de chegar numa peça de `pubkey`? `anterior` é a `marcaDaVez` da última sala vista (undefined: ninguém).
  * Serve para avisar quem joga na hora em que é a sua vez, e só nela.
  */
-export function vezChegouParaMim(anterior: string | undefined, atual: Peca | undefined, pubkey: string | undefined): boolean {
-  return atual !== undefined && pubkey !== undefined && atual.dono === pubkey && atual.id !== anterior
+export function vezChegouParaMim(anterior: string | undefined, sala: Sala, pubkey: string | undefined): boolean {
+  const vez = daVez(sala)
+  return vez !== undefined && pubkey !== undefined && vez.dono === pubkey && marcaDaVez(sala) !== anterior
 }
 
 /** Duas letras para a ficha: "Goblin Arqueiro" vira GA, "Goblin 2" vira G2, "Lich" vira LI. */

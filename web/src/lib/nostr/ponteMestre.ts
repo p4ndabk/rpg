@@ -108,7 +108,8 @@ export class PonteMestre {
       recusou = saidas.some((s) => s.para === id && s.msg.t === 'foto')
       if (recusou) this.recusada = { pubkey: quem.pubkey, acao: mensagem.acao.tipo }
     }
-    this.agendarFoto(voltou || recusou)
+    // Quem pede para entrar (de novo) ainda pode estar sem foto: publica já.
+    this.agendarFoto(voltou || recusou || mensagem.t === 'entrar')
   }
 
   /** Só o que é para o mestre vira mensagem; o resto é de quem joga e vai na foto pública. */

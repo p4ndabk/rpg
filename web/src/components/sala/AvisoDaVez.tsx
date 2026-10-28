@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { somLigado } from '../../lib/preferencias'
-import { daVez, vezChegouParaMim, type Sala } from '../../lib/sala'
+import { daVez, marcaDaVez, vezChegouParaMim, type Sala } from '../../lib/sala'
 import { Ficha } from './Ficha'
 
 const DURACAO_MS = 4500
@@ -41,19 +41,21 @@ interface AvisoDaVezProps {
 export function AvisoDaVez({ sala, pubkey }: AvisoDaVezProps) {
   const vez = daVez(sala)
   // Começa com a vez que já existe ao abrir a tela: recarregar no meio do turno não toca de novo.
-  const anterior = useRef<string | undefined>(vez?.id)
+  const marca = marcaDaVez(sala)
+  const anterior = useRef<string | undefined>(marca)
   const [mostrando, setMostrando] = useState(false)
   const minhaVez = vez !== undefined && vez.dono === pubkey
 
   useEffect(() => {
-    if (vezChegouParaMim(anterior.current, vez, pubkey)) {
+    if (vezChegouParaMim(anterior.current, sala, pubkey)) {
       setMostrando(true)
       if (somLigado()) tocarAvisoDeVez()
     } else if (!minhaVez) {
       setMostrando(false)
     }
-    anterior.current = vez?.id
-  }, [vez, pubkey, minhaVez])
+    anterior.current = marca
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marca, pubkey, minhaVez])
 
   // O cartão some sozinho; o relógio não reinicia quando a sala muda por outro motivo (um dano, um movimento).
   useEffect(() => {

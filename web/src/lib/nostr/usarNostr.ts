@@ -7,6 +7,8 @@ import { chaveDoNavegador } from './chave'
 import { KIND_FOTO, lerEventoFoto, lerRecusa, montarPedido, tagDaSala, type Quem } from './eventos'
 import { PonteMestre } from './ponteMestre'
 
+const ESPERA_REENVIO_MS = 8000
+
 // Os dois lados da sala em relays, com a mesma forma de `usarServidor` (fase + enviar), para a tela usar um ou outro.
 
 /** Mestre: roda a ponte no navegador. `relays` nulo desliga. */
@@ -82,11 +84,13 @@ export function usarNostrJogador(
     let ultimaVersao = -1
     let primeira = true
     let avisouEm = 0
+    let recebeu = false
     const parar = b.assinar({ kinds: [KIND_FOTO], authors: [convite.mestre], '#d': [tagDaSala(convite.salaId)] }, (e) => {
       if (e.created_at <= ultimo) return
       const lida = lerEventoFoto(e)
       if (!lida || lida.foto.sala.id !== convite.salaId) return
       ultimo = e.created_at
+      recebeu = true
       // A foto de cada minuto é também o sinal do mestre: guarda a hora e só mexe na sala se algo mudou.
       setPresenca({ mestreEm: e.created_at, vistos: lida.foto.vistos ?? {} })
       const recusa = lerRecusa(e)
@@ -107,7 +111,10 @@ export function usarNostrJogador(
     if (entrar) pedir(b, entrar)
     // Sinal de vida a cada minuto, para a Mesa saber quem está online.
     const sinal = entrar ? window.setInterval(() => pedir(b, { t: 'presenca' }), SINAL_MS) : undefined
+    // Nenhuma foto ainda (o pedido ou a foto se perdeu num relay): bate na porta de novo a cada 8 s. Cada "entrar" faz o mestre publicar a foto na hora.
+    const reenvio = entrar ? window.setInterval(() => !recebeu && pedir(b, entrar), ESPERA_REENVIO_MS) : undefined
     return () => {
+      window.clearInterval(reenvio)
       window.clearInterval(sinal)
       setPresenca({ mestreEm: null, vistos: {} })
       parar()
