@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { usarJornada } from '../components/jornada/Jornada'
 import { Rolador } from '../components/Rolador'
 import { AnuncioRolagem } from '../components/sala/AnuncioRolagem'
+import { baixarSala } from '../components/sala/ArquivoDeSala'
 import { AvisoDaVez } from '../components/sala/AvisoDaVez'
 import { Atalhos } from '../components/sala/Atalhos'
 import { CriarSala } from '../components/sala/CriarSala'
@@ -974,6 +975,16 @@ export function TelaSala() {
                     Encerrar combate
                   </Botao>
                 )}
+                <Botao
+                  tamanho="pequeno"
+                  className="w-full"
+                  onClick={() => {
+                    baixarSala({ sala: atual, log, jogadores, notas })
+                    setAviso('Sala salva num arquivo. Para abrir em outro navegador: Salas › Abrir de um arquivo.')
+                  }}
+                >
+                  Salvar sala em arquivo
+                </Botao>
                 <Botao tamanho="pequeno" className="w-full" onClick={aoApagarSala}>
                   Apagar sala
                 </Botao>

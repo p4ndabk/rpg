@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usarJornada } from '../components/jornada/Jornada'
+import { AbrirArquivoDeSala, baixarSala } from '../components/sala/ArquivoDeSala'
 import { CriarSala } from '../components/sala/CriarSala'
 import { Botao } from '../components/ui/Botao'
 import { usarUsuario } from '../components/usuario/Usuario'
+import type { ArquivoDeSala } from '../lib/arquivoSala'
 import { gravar, ler } from '../lib/armazenamento'
+import { adotarChaveDoNavegador } from '../lib/nostr/chave'
 import { apagarSalaRemota, CHAVE_CONEXAO } from '../lib/rede/chaves'
 import { pedir } from '../lib/rede/consulta'
 import type { MensagemServidor, ResumoSala } from '../lib/rede/protocolo'
@@ -94,6 +97,17 @@ export function TelaSalas() {
     location.hash = linkPara('sala')
   }
 
+  function abrirDeArquivo({ guardada, chaveNostr }: ArquivoDeSala) {
+    if (!usuario) return
+    setErro('')
+    if (guardada.sala.mestre && guardada.sala.mestre !== usuario.pubkey) {
+      return setErro('Essa sala foi criada por outra chave. Entre com a chave de quem a criou para abrir.')
+    }
+    if (chaveNostr) adotarChaveDoNavegador(chaveNostr)
+    abrirSala(localStorage, guardada, false)
+    location.hash = linkPara('sala')
+  }
+
   async function entrar(sala: Linha) {
     if (!usuario) return
     setErro('')
@@ -137,9 +151,12 @@ export function TelaSalas() {
           Salas
         </h1>
         {usuario && (
-          <Botao variante="principal" onClick={() => setCriando(true)}>
-            Nova sala
-          </Botao>
+          <div className="flex flex-wrap gap-2">
+            <AbrirArquivoDeSala aoLer={abrirDeArquivo} aoErro={setErro} />
+            <Botao variante="principal" onClick={() => setCriando(true)}>
+              Nova sala
+            </Botao>
+          </div>
         )}
       </div>
 
@@ -222,6 +239,18 @@ export function TelaSalas() {
                       </p>
                     </div>
                     <div className="flex gap-2">
+                      {s.aqui !== null && s.papel === 'mestre' && (
+                        <Botao
+                          tamanho="pequeno"
+                          aria-label={`Salvar ${s.nome} num arquivo`}
+                          onClick={() => {
+                            const g = lerSalaLocal(localStorage, s.id)
+                            if (g) baixarSala(g)
+                          }}
+                        >
+                          Salvar
+                        </Botao>
+                      )}
                       {s.aqui === 'guardada' && (
                         <Botao tamanho="pequeno" aria-label={`Tirar ${s.nome} deste navegador`} onClick={() => apagar(s)}>
                           {s.noServidor ? 'Tirar daqui' : 'Apagar'}

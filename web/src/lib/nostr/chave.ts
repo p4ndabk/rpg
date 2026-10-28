@@ -22,4 +22,14 @@ export function chaveDoNavegador(): Uint8Array {
 
 let memoria: Uint8Array | undefined
 
+/** Passa a assinar com esta chave (a de um arquivo de sala), para os convites antigos seguirem valendo. */
+export function adotarChaveDoNavegador(hex: string): void {
+  if (!/^[0-9a-f]{64}$/.test(hex)) return
+  try {
+    localStorage.setItem(CHAVE, hex)
+  } catch {
+    memoria = hexToBytes(hex)
+  }
+}
+
 export const chavePublicaDoNavegador = (): string => getPublicKey(chaveDoNavegador())
